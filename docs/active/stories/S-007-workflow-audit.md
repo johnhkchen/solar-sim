@@ -2,100 +2,158 @@
 id: S-007
 title: Task Management Workflow Audit
 status: pending
-priority: 1
+priority: 0
 milestone: null
 ---
 
 # S-007: Task Management Workflow Audit
 
-This story addresses reliability issues in the multi-agent task management system discovered during phase 2 development.
+This story addresses critical reliability issues in the multi-agent task management system. It has priority 0 (highest) because these bugs block all future concurrent development.
 
 ## Problem Statement
 
-During S-005 and S-006 execution, several workflow failures occurred that undermined the reliability of concurrent ralph loops.
+During S-005 and S-006 execution, the task management system repeatedly failed in ways that corrupted workflow state and wasted effort.
 
-### Observed Issues
+### Critical Bug: Phantom Task Claiming
 
-**Duplicate task claiming**: Both worktrees claimed the same task (S-005-R) despite running on different stories. The story filter was added but wasn't being used correctly.
+Tasks are being claimed (status changed to in-progress) without any agent actually working on them. This appears to happen when something triggers `just prompt` - perhaps a file watcher, linter hook, or editor integration. Each `just prompt` call claims the next ready task, so repeated invocations burn through the task queue marking everything in-progress without doing work.
 
-**Premature completion marking**: Tasks were marked complete in task-graph.yaml before the actual work was done. The ralph loop or agents updated status without verifying deliverables existed.
+Evidence: T-006-02 and T-006-03 were both marked in-progress and then "complete" within minutes, but no implementation files were created. The task-graph.yaml showed `claimed_at` timestamps but no corresponding commits or file changes.
 
-**State desynchronization**: The task-graph.yaml in main diverged from worktree copies. Changes accumulated in main's working directory rather than in worktree branches, breaking the intended PR-based merge flow.
+### Critical Bug: Manual YAML as Source of Truth
 
-**Stale task accumulation**: Tasks remained in-progress for hours after agents stopped working on them. The heartbeat mechanism didn't effectively detect abandoned work.
+The task-graph.yaml is being hand-edited to add tasks, change statuses, and update counts. This is backwards - the YAML should be derived from ticket frontmatter via `just dag-refresh`, not maintained manually. Manual edits introduce errors and make the DAG unreliable.
 
-**Uncommitted work**: Implementation files existed in main but weren't committed. The workflow assumed agents would commit, but they didn't always do so.
+Evidence: Stories S-005 and S-006 had tasks added directly to the YAML without corresponding ticket files. When tickets were later created, they didn't match the YAML entries. The `meta` counts were often wrong because they were updated manually.
+
+### Secondary Issues
+
+**Missing tickets**: The R-P-I pattern requires tickets for implementation work, but stories jumped straight to implementation without creating tickets. S-005 and S-006 both had ad-hoc task entries added to the YAML.
+
+**No deliverable verification**: Tasks marked complete without output files existing. The `just task-complete` command trusts the caller completely.
+
+**State desync**: Changes accumulated in main's working directory instead of worktree branches. The intended PR flow never happened.
+
+**Duplicate claiming**: Both worktrees claimed the same task because the story filter wasn't being used.
 
 ## Root Cause Analysis
 
-The issues stem from several architectural gaps.
+### Prompt Auto-Invocation
 
-### No deliverable verification
+Something in the development environment is calling `just prompt` automatically. Likely candidates include editor extensions that run commands on file save, terminal hooks, or Claude Code's own tooling. Each invocation claims a task, so rapid-fire invocations claim multiple tasks instantly.
 
-The `just task-complete` command marks a task complete based solely on the task ID. It doesn't verify that the expected output files exist or have meaningful content. An agent can mark research complete without producing a research document.
+The fix requires understanding what triggers these calls and either preventing them or making `just prompt` idempotent (not claiming on repeated calls for the same task).
 
-### Story filter not enforced
+### YAML-First Design Flaw
 
-The `WORKTREE_STORY` filter was added to prompt.ts but wasn't being used consistently. The `just ralph` command doesn't require or validate a story assignment, so loops can run without filtering.
+The original design made task-graph.yaml the source of truth and `just dag-refresh` an optional validation tool. This inverts the correct relationship. Ticket markdown files should be authoritative, and the YAML should be generated from them.
 
-### No commit enforcement
+The fix requires refactoring `just dag-refresh` to generate the nodes section from ticket frontmatter, not just validate it.
 
-The workflow assumes agents commit their work, but nothing enforces this. Agents can modify files and mark tasks complete without creating commits. The PR-based merge flow only works if commits exist.
+### Missing Safeguards
 
-### Worktree state isolation failure
+The tooling trusts agents completely. There are no checks for:
+- Whether output files exist before marking complete
+- Whether we're in a worktree vs main repo
+- Whether the claimed task matches the worktree's assigned story
+- Whether work was actually committed
 
-The worktrees were supposed to isolate work on feature branches, but changes ended up in main's working directory. This suggests the loops ran from main rather than from worktrees, or the worktrees weren't properly configured.
+## Proposed Architecture
 
-### Heartbeat insufficient for detection
+### Core Principle: Read-Only Prompt, Explicit Accept
 
-The heartbeat file only indicates the loop is running, not that it's making progress. A stuck loop that keeps iterating but fails to complete tasks would have a fresh heartbeat.
+The fundamental fix is separating task discovery from task claiming. The current `just prompt` both shows and claims, which causes phantom claiming when invoked accidentally.
 
-## Proposed Fixes
+**New command structure:**
+- `just prompt` - Read-only. Shows the next available task without claiming it. Safe to run repeatedly.
+- `just prompt --accept` - Explicitly claims the task. Updates ticket frontmatter. Outputs the prompt for execution.
+- `just task-complete <id>` - Marks task complete by updating ticket frontmatter.
+- `just dag-refresh` - Regenerates task-graph.yaml from ticket frontmatter.
 
-### F1: Deliverable verification
+### Ticket-First Workflow
 
-Add an optional `output` field check to `just task-complete`. If the task specifies an output path, verify the file exists before marking complete. Log a warning if the file is missing or empty.
+Tickets become the source of truth. Each ticket file in `docs/active/tickets/` contains YAML frontmatter with id, title, story, status, priority, complexity, dependencies, and output path.
 
-### F2: Mandatory story filter
+Status changes happen by editing ticket frontmatter:
+- `just prompt --accept` sets `status: in-progress` and `claimed_at: <timestamp>` in the ticket file
+- `just task-complete` sets `status: complete` and `completed_at: <timestamp>` in the ticket file
+- `just dag-refresh` reads all tickets and regenerates task-graph.yaml
 
-Modify `just ralph` to require a story argument. Change from `just ralph` to `just ralph S-005`. The loop should fail to start without a valid story assignment. This prevents accidental cross-story claiming.
+The task-graph.yaml becomes a derived artifact, not the source of truth. Manual edits to the nodes section are overwritten on refresh.
 
-### F3: Commit-before-complete
+### Claim Guard
 
-Add a pre-complete check that verifies the working directory has no uncommitted changes related to the task's output files. If uncommitted changes exist, prompt the agent to commit first or refuse to mark complete.
+With the new architecture, claiming only happens via `just prompt --accept`. Guards include:
+1. If a task is already in-progress for this worktree (check `.ralph/current-task`), refuse to claim another
+2. If `WORKTREE_STORY` is set, only allow claiming tasks from that story
+3. If running from main repo, refuse to claim (protect main from state pollution)
 
-### F4: Worktree validation
+### Completion Guard
 
-Add a check at loop start that verifies the current directory is a linked worktree (not the main repo). Refuse to run ralph from main to prevent accidental state pollution.
+Add a completion guard to `just task-complete` that prevents completion if:
+1. The task's output path is specified but the file doesn't exist
+2. The output file exists but is empty or placeholder content
+3. There are uncommitted changes to the output files
 
-### F5: Progress tracking
+### Audit Trail
 
-Enhance the heartbeat to include the current task ID and a timestamp of when that task was claimed. Stale detection can then identify loops that claimed a task long ago without completing it.
+Log all task state transitions to `logs/task-audit.jsonl` with timestamp, task ID, old status, new status, worktree name, and trigger source. This creates a forensic record for debugging.
 
-### F6: Task claiming audit log
+## Implementation Tickets
 
-Log all task state transitions (claim, complete, reset) with timestamps and worktree identity to a separate audit file. This creates a clear record of what happened when, aiding debugging.
+### T-007-01: Diagnose Phantom Claiming
 
-## Implementation Approach
+Research what's triggering automatic `just prompt` calls. Check for editor hooks, file watchers, and shell integrations. Document the trigger mechanism. This informs whether we need additional safeguards beyond the read-only prompt fix.
 
-The fixes should be implemented incrementally, with each one tested before moving to the next. Priority order is F2 (mandatory story filter) first since it prevents the most damaging failure mode, then F4 (worktree validation), then F1 (deliverable verification), then F3 (commit-before-complete), then F5 and F6 as observability improvements.
+### T-007-02: Implement Ticket-First DAG Generation
+
+Refactor `just dag-refresh` to generate nodes from ticket frontmatter. The command should scan `docs/active/tickets/*.md`, extract frontmatter, and regenerate the nodes section. Stories section remains manually maintained. Edges are derived from ticket `depends_on` fields. This makes tickets the source of truth.
+
+### T-007-03: Add Claim Guards
+
+Implement read-only prompt and explicit accept:
+- `just prompt` becomes read-only (no state changes)
+- `just prompt --accept` claims by updating ticket frontmatter
+- Track current task in `.ralph/current-task`
+- Enforce WORKTREE_STORY matching
+- Detect and refuse to claim from main repo
+
+### T-007-04: Add Completion Guards
+
+Implement the completion guard in `just task-complete`:
+- Update ticket frontmatter (not task-graph.yaml directly)
+- Verify output files exist if specified
+- Check for placeholder/empty content
+- Warn about uncommitted changes
+- Run `dag-refresh` after updating ticket
+
+### T-007-05: Add Audit Logging
+
+Implement task state transition logging:
+- Log claims, completions, and resets
+- Include worktree identity and timestamps
+- Create `logs/task-audit.jsonl`
 
 ## Acceptance Criteria
 
-The workflow is reliable when two concurrent ralph loops can complete their respective R-P-I chains without duplicate task claiming or premature completion. Each loop must commit its work to its feature branch. Task status in task-graph.yaml must accurately reflect actual work state. The audit log must show a clear history of task state transitions.
+The workflow is fixed when:
+
+1. Running `just prompt` twice in a row does not claim two different tasks
+2. Tickets are the source of truth and `just dag-refresh` regenerates nodes from them
+3. `just task-complete` refuses to complete tasks with missing output files
+4. Running `just ralph` from main repo produces an error
+5. The audit log shows a clear history of all task state changes
 
 ## Research Questions
 
-Before implementation, verify these assumptions.
+R1: What is invoking `just prompt` automatically? Check `.claude/`, editor configs, shell hooks.
 
-R1: Can git detect whether we're in a linked worktree vs the main repo programmatically? (Check `.git` file vs directory distinction.)
+R2: How should ticket frontmatter schema look? What fields are required vs optional?
 
-R2: What's the best way to verify a file has "meaningful content" vs being empty or placeholder? (File size threshold? Content pattern matching?)
+R3: Should edges be explicit in ticket frontmatter or inferred from story structure?
 
-R3: Should the story filter be inferred from the worktree name (solar-sim-solar -> S-005) or always explicit?
-
-R4: How should the system handle the case where an agent legitimately needs to work across multiple stories?
+R4: How to detect "placeholder content" reliably? File size? Pattern matching?
 
 ## Dependencies
 
-This story blocks future concurrent development. It should be completed before the next phase of parallel work begins. It does not depend on S-005 or S-006 completion.
+This story has no dependencies and blocks all other work. Complete S-007 before resuming S-006 or starting any new concurrent development.
