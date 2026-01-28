@@ -126,6 +126,12 @@ worktree-new name:
 
     echo "  Branch: $BRANCH"
 
+    # Install project dependencies in the new worktree
+    if [ -f "${WORKTREE_PATH}/package.json" ]; then
+        echo "  Installing project dependencies..."
+        (cd "${WORKTREE_PATH}" && npm install --silent 2>/dev/null || true)
+    fi
+
     # Install tools dependencies in the new worktree
     if [ -f "${WORKTREE_PATH}/tools/package.json" ]; then
         echo "  Installing tool dependencies..."
