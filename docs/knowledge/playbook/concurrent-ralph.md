@@ -84,21 +84,26 @@ Both should show S-005-R and S-006-R as ready.
 
 ## Running the Loops
 
-Open two terminal windows or tmux panes.
+Open two terminal windows or tmux panes. Each loop must specify which story it handles using the `ralph-story` command. This prevents both loops from claiming the same task.
 
 **Terminal 1 (solar engine):**
 ```bash
 cd /path/to/solar-sim-solar
-just ralph
+just ralph-story S-005
 ```
 
 **Terminal 2 (location system):**
 ```bash
 cd /path/to/solar-sim-location
-just ralph
+just ralph-story S-006
 ```
 
-Each loop will claim its first task, execute it, and continue through the R-P-I chain.
+The `ralph-story` command sets the `WORKTREE_STORY` environment variable, which filters tasks so each loop only sees tasks belonging to its assigned story. Without this filter, both loops would race to claim the same highest-priority task, causing duplicate work.
+
+Alternatively, set the environment variable directly:
+```bash
+WORKTREE_STORY=S-005 just ralph
+```
 
 ## Monitoring
 
@@ -197,9 +202,9 @@ If things aren't working:
 just worktree-new solar
 just worktree-new location
 
-# Run (in separate terminals)
-cd ../solar-sim-solar && just ralph
-cd ../solar-sim-location && just ralph
+# Run (in separate terminals) - IMPORTANT: use ralph-story to filter by story
+cd ../solar-sim-solar && just ralph-story S-005
+cd ../solar-sim-location && just ralph-story S-006
 
 # Monitor
 just ralph-status

@@ -94,8 +94,19 @@ function computeReadyTasks(graph: TaskGraph): Task[] {
 }
 
 function selectNextTask(graph: TaskGraph): Task | null {
-  const ready = computeReadyTasks(graph);
+  let ready = computeReadyTasks(graph);
   if (ready.length === 0) return null;
+
+  // Filter by story if WORKTREE_STORY is set (for concurrent loops)
+  const storyFilter = process.env.WORKTREE_STORY;
+  if (storyFilter) {
+    ready = ready.filter((task) => task.story === storyFilter);
+    if (ready.length === 0) {
+      console.error(`No ready tasks for story ${storyFilter}.`);
+      console.error('All tasks for this story may be complete or blocked.');
+      return null;
+    }
+  }
 
   ready.sort((a, b) => {
     if (a.priority !== b.priority) {

@@ -91,7 +91,7 @@ stories:
     path: docs/archive/phase-1-foundation/stories/S-004-sveltekit-scaffold.md
   - id: S-005
     title: Solar Calculation Engine
-    status: pending
+    status: in-progress
     priority: 1
     milestone: M7
     path: docs/active/stories/S-005-solar-engine.md
@@ -263,7 +263,7 @@ nodes:
       Output: docs/knowledge/research/solar-algorithms.md
     priority: 1
     complexity: M
-    status: ready
+    status: complete
     completed_at: "2026-01-28"
     output: docs/knowledge/research/solar-algorithms.md
   - id: S-005-P
@@ -280,7 +280,9 @@ nodes:
       Output: Updated S-005 story with implementation plan
     priority: 1
     complexity: S
-    status: ready
+    status: complete
+    completed_at: "2026-01-28"
+    output: docs/active/stories/S-005-solar-engine.md
   - id: S-005-I
     title: Implement solar calculation engine
     story: S-005
@@ -295,7 +297,72 @@ nodes:
       Output: src/lib/solar/
     priority: 1
     complexity: L
+    status: ready
+  - id: T-005-01
+    title: Implement sun position calculator
+    story: S-005
+    milestone: M7
+    description: |
+      Create the position module wrapping SunCalc:
+      - Install SunCalc dependency
+      - Create types.ts with shared interfaces
+      - Implement getSunPosition and getSunTimes
+      - Handle radian-to-degree conversion
+      - Detect polar conditions
+
+      Output: src/lib/solar/types.ts, src/lib/solar/position.ts
+    priority: 1
+    complexity: M
+    status: complete
+    path: docs/active/tickets/T-005-01-sun-position.md
+    completed_at: "2026-01-28"
+    output: src/lib/solar/types.ts, src/lib/solar/position.ts
+  - id: T-005-02
+    title: Implement sun hours integrator
+    story: S-005
+    milestone: M7
+    description: |
+      Create the integration module for daily sun hours:
+      - Sample altitude at 5-minute intervals
+      - Sum intervals where altitude > 0
+      - Return DailySunData with polar condition
+
+      Output: src/lib/solar/sun-hours.ts
+    priority: 1
+    complexity: M
+    status: ready
+    path: docs/active/tickets/T-005-02-sun-hours.md
+  - id: T-005-03
+    title: Implement seasonal aggregator
+    story: S-005
+    milestone: M7
+    description: |
+      Create aggregation module for date ranges:
+      - getSeasonalSummary for arbitrary ranges
+      - getMonthlySummary convenience function
+      - getYearlySummary for annual patterns
+
+      Output: src/lib/solar/seasonal.ts
+    priority: 1
+    complexity: M
     status: pending
+    path: docs/active/tickets/T-005-03-seasonal.md
+  - id: T-005-04
+    title: Wire up integration and add tests
+    story: S-005
+    milestone: M7
+    description: |
+      Complete integration and testing:
+      - Update index.ts to re-export all APIs
+      - Add tests for Portland, Singapore, Tromsø
+      - Add polar condition tests
+      - Add performance benchmarks
+
+      Output: src/lib/solar/index.ts, test files
+    priority: 1
+    complexity: M
+    status: pending
+    path: docs/active/tickets/T-005-04-integration-testing.md
   - id: S-006-R
     title: Research location and geocoding options
     story: S-006
@@ -381,22 +448,32 @@ edges:
     to: S-005-P
   - from: S-005-P
     to: S-005-I
+  - from: S-005-P
+    to: T-005-01
+  - from: T-005-01
+    to: T-005-02
+  - from: T-005-02
+    to: T-005-03
+  - from: T-005-03
+    to: T-005-04
+  - from: T-005-04
+    to: S-005-I
   - from: S-006-R
     to: S-006-P
   - from: S-006-P
     to: S-006-I
 meta:
   total_stories: 6
-  total_tasks: 22
+  total_tasks: 26
   total_milestones: 8
   by_status:
     ready: 3
-    pending: 3
+    pending: 4
     in_progress: 0
-    complete: 16
+    complete: 19
     blocked: 0
   by_priority:
-    p1: 15
+    p1: 19
     p2: 7
   by_milestone:
     M1:
@@ -421,6 +498,10 @@ meta:
       - S-005-R
       - S-005-P
       - S-005-I
+      - T-005-01
+      - T-005-02
+      - T-005-03
+      - T-005-04
     M8:
       - S-006-R
       - S-006-P

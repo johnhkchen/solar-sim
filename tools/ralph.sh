@@ -10,6 +10,11 @@
 # A heartbeat timestamp is written to logs/ralph.heartbeat each iteration.
 #
 # Usage: just ralph
+#        WORKTREE_STORY=S-005 just ralph  # Only process tasks for story S-005
+#
+# Environment variables:
+#   WORKTREE_STORY - If set, only claim tasks belonging to this story
+#                    (e.g., "S-005" for solar engine, "S-006" for location)
 #
 # Exit codes:
 #   0 - All tasks complete or all remaining tasks blocked
@@ -198,6 +203,10 @@ trap cleanup EXIT
 # Main header
 echo "🔄 Starting Ralph Loop..."
 echo "   Pulling tasks from DAG and executing via Claude Code"
+if [ -n "${WORKTREE_STORY:-}" ]; then
+    echo "   Story filter: $WORKTREE_STORY"
+    export WORKTREE_STORY
+fi
 echo "   Logs: $LOG_FILE"
 echo "   Heartbeat: $HEARTBEAT_FILE"
 echo ""

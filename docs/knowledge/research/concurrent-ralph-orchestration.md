@@ -38,7 +38,19 @@ The stories share no files, so both loops can run their full R-P-I chains withou
 
 ## Running Concurrent Loops
 
-Once worktrees are set up and synced, run each loop in a separate terminal. Change into the worktree directory and run `just ralph`. The loop will claim the first ready task in its story's chain, execute it, mark it complete, and continue to the next task.
+Once worktrees are set up and synced, run each loop in a separate terminal with its story filter. The `WORKTREE_STORY` environment variable tells the prompt tool to only consider tasks belonging to a specific story. This prevents the race condition where both loops claim the same highest-priority task.
+
+```bash
+# Terminal 1
+cd ../solar-sim-solar
+just ralph-story S-005
+
+# Terminal 2
+cd ../solar-sim-location
+just ralph-story S-006
+```
+
+The `ralph-story` command wraps `just ralph` with the appropriate `WORKTREE_STORY` environment variable. Without this filter, both loops would see all ready tasks and race to claim the same one, causing duplicate work.
 
 The loops operate asynchronously. One might complete its research quickly while the other takes longer. Each loop works through its own dependency chain independently.
 

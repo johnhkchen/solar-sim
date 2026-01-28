@@ -22,8 +22,13 @@ install-tools:
 # ============================================================================
 
 # Start a Ralph Loop - autonomous coding agent that pulls tasks from the DAG
+# Use WORKTREE_STORY env var to filter by story (e.g., WORKTREE_STORY=S-005 just ralph)
 ralph:
     @./tools/ralph.sh
+
+# Start a Ralph Loop filtered to a specific story
+ralph-story story:
+    @WORKTREE_STORY={{story}} ./tools/ralph.sh
 
 # Show Ralph loop status (heartbeat and recent log entries)
 ralph-status:
