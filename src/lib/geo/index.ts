@@ -1,22 +1,39 @@
-// Geographic and timezone handling module
-// Handles coordinate validation, timezone inference, and geocoding
+/**
+ * Geographic and location handling module.
+ *
+ * This module provides coordinate validation, parsing, timezone inference,
+ * and geocoding functionality for the Solar-Sim application.
+ */
 
-export interface Coordinates {
-	latitude: number;
-	longitude: number;
-}
+// Re-export all types
+export type {
+	Coordinates,
+	Location,
+	LocationResult,
+	GeocodingOptions,
+	GeocodingError,
+	GeocodingResult,
+	CoordinateFormat,
+	ParsedCoordinates,
+	ParseError,
+	ParseResult
+} from './types.js';
 
-export interface Location extends Coordinates {
-	timezone: string;
-	name?: string;
-}
+export {
+	LATITUDE_MIN,
+	LATITUDE_MAX,
+	LONGITUDE_MIN,
+	LONGITUDE_MAX,
+	GEOCODING_RATE_LIMIT_MS
+} from './types.js';
 
-// Placeholder - implementation pending
-export function validateCoordinates(lat: number, lng: number): boolean {
-	return lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
-}
-
-// Placeholder - implementation pending
-export function inferTimezone(_coordinates: Coordinates): string {
-	return 'UTC';
-}
+// Re-export coordinate functions
+export {
+	validateCoordinates,
+	validateCoordinatesWithError,
+	parseCoordinates,
+	tryParseCoordinates,
+	formatCoordinates,
+	formatCoordinatesDMS,
+	getParseErrorMessage
+} from './coordinates.js';

@@ -10,7 +10,9 @@
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
-		"test": "echo 'No tests configured yet'"
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"test:bench": "vitest bench"
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-cloudflare": "^6.0.1",
@@ -21,9 +23,11 @@
 		"svelte-check": "^4.3.5",
 		"typescript": "^5.9.3",
 		"vite": "^6.0.0",
+		"vitest": "^3.2.4",
 		"wrangler": "^3.99.0"
 	},
 	"dependencies": {
+		"geo-coordinates-parser": "^1.7.4",
 		"suncalc": "^1.9.0"
 	}
 }

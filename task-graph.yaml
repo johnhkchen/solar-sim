@@ -49,7 +49,7 @@ milestones:
   - id: M7
     title: Solar Engine
     description: Core sun position and sun hours calculations
-    status: pending
+    status: complete
     tasks:
       - S-005-I
     depends_on: []
@@ -91,13 +91,13 @@ stories:
     path: docs/archive/phase-1-foundation/stories/S-004-sveltekit-scaffold.md
   - id: S-005
     title: Solar Calculation Engine
-    status: in-progress
+    status: complete
     priority: 1
     milestone: M7
     path: docs/active/stories/S-005-solar-engine.md
   - id: S-006
     title: Location Input System
-    status: pending
+    status: in-progress
     priority: 1
     milestone: M8
     path: docs/active/stories/S-006-location-input.md
@@ -297,7 +297,9 @@ nodes:
       Output: src/lib/solar/
     priority: 1
     complexity: L
-    status: ready
+    status: complete
+    completed_at: "2026-01-28"
+    output: src/lib/solar/
   - id: T-005-01
     title: Implement sun position calculator
     story: S-005
@@ -330,8 +332,10 @@ nodes:
       Output: src/lib/solar/sun-hours.ts
     priority: 1
     complexity: M
-    status: ready
+    status: complete
     path: docs/active/tickets/T-005-02-sun-hours.md
+    completed_at: "2026-01-28"
+    output: src/lib/solar/sun-hours.ts
   - id: T-005-03
     title: Implement seasonal aggregator
     story: S-005
@@ -345,8 +349,10 @@ nodes:
       Output: src/lib/solar/seasonal.ts
     priority: 1
     complexity: M
-    status: pending
+    status: complete
     path: docs/active/tickets/T-005-03-seasonal.md
+    completed_at: "2026-01-28"
+    output: src/lib/solar/seasonal.ts
   - id: T-005-04
     title: Wire up integration and add tests
     story: S-005
@@ -361,8 +367,10 @@ nodes:
       Output: src/lib/solar/index.ts, test files
     priority: 1
     complexity: M
-    status: pending
+    status: complete
     path: docs/active/tickets/T-005-04-integration-testing.md
+    completed_at: "2026-01-28"
+    output: src/lib/solar/index.ts, src/lib/solar/*.test.ts
   - id: S-006-R
     title: Research location and geocoding options
     story: S-006
@@ -378,7 +386,9 @@ nodes:
       Output: docs/knowledge/research/location-geocoding.md
     priority: 1
     complexity: M
-    status: ready
+    status: complete
+    completed_at: "2026-01-28"
+    output: docs/knowledge/research/location-geocoding.md
   - id: S-006-P
     title: Plan location system implementation
     story: S-006
@@ -393,7 +403,9 @@ nodes:
       Output: Updated S-006 story with implementation plan
     priority: 1
     complexity: S
-    status: pending
+    status: complete
+    completed_at: "2026-01-28"
+    output: docs/active/stories/S-006-location-input.md
   - id: S-006-I
     title: Implement location input system
     story: S-006
@@ -406,6 +418,69 @@ nodes:
       - Location input UI component
 
       Output: src/lib/geo/, src/lib/components/
+    priority: 1
+    complexity: L
+    status: ready
+  - id: T-006-01
+    title: Implement coordinate parsing and validation
+    story: S-006
+    milestone: M8
+    description: |
+      Create the coordinate module that handles parsing and validation:
+      - Install geo-coordinates-parser dependency
+      - Implement parseCoordinates for decimal and DMS formats
+      - Implement validateCoordinates for range checking
+      - Return structured error information for invalid inputs
+
+      Output: src/lib/geo/types.ts, src/lib/geo/coordinates.ts
+    priority: 1
+    complexity: M
+    status: complete
+    completed_at: "2026-01-28"
+    output: src/lib/geo/types.ts, src/lib/geo/coordinates.ts
+  - id: T-006-02
+    title: Implement timezone detection
+    story: S-006
+    milestone: M8
+    description: |
+      Create the timezone module wrapping tz-lookup:
+      - Install tz-lookup dependency
+      - Implement getTimezone for coordinate-based lookup
+      - Handle undefined fallback to UTC with flag
+      - Test major cities and edge cases
+
+      Output: src/lib/geo/timezone.ts
+    priority: 1
+    complexity: S
+    status: in-progress
+    claimed_at: "2026-01-28T01:55:22.630Z"
+  - id: T-006-03
+    title: Implement geocoding integration
+    story: S-006
+    milestone: M8
+    description: |
+      Create the geocoding module for Nominatim API:
+      - Implement geocodeAddress with rate limiting
+      - Format requests with proper headers
+      - Parse responses into internal types
+      - Handle network errors and no-results cases
+
+      Output: src/lib/geo/geocoding.ts
+    priority: 1
+    complexity: M
+    status: pending
+  - id: T-006-04
+    title: Implement location input component
+    story: S-006
+    milestone: M8
+    description: |
+      Create the Svelte component for location input:
+      - Address search mode with Nominatim integration
+      - Manual coordinates mode with format detection
+      - Current location mode with geolocation API
+      - Error states and user feedback
+
+      Output: src/lib/components/LocationInput.svelte
     priority: 1
     complexity: L
     status: pending
@@ -462,18 +537,28 @@ edges:
     to: S-006-P
   - from: S-006-P
     to: S-006-I
+  - from: S-006-P
+    to: T-006-01
+  - from: T-006-01
+    to: T-006-02
+  - from: T-006-02
+    to: T-006-03
+  - from: T-006-03
+    to: T-006-04
+  - from: T-006-04
+    to: S-006-I
 meta:
   total_stories: 6
-  total_tasks: 26
+  total_tasks: 30
   total_milestones: 8
   by_status:
-    ready: 3
-    pending: 4
-    in_progress: 0
-    complete: 19
+    ready: 1
+    pending: 2
+    in_progress: 1
+    complete: 26
     blocked: 0
   by_priority:
-    p1: 19
+    p1: 23
     p2: 7
   by_milestone:
     M1:
@@ -506,3 +591,7 @@ meta:
       - S-006-R
       - S-006-P
       - S-006-I
+      - T-006-01
+      - T-006-02
+      - T-006-03
+      - T-006-04

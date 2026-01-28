@@ -1,38 +1,34 @@
-// Solar position calculation module
-// Handles sun position (altitude, azimuth), sunrise/sunset, and day length
+/**
+ * Solar calculation engine main entry point.
+ *
+ * This module re-exports all public types and functions from the solar engine,
+ * allowing consumers to import everything from '$lib/solar' without knowing
+ * about the internal module structure.
+ */
 
-export interface SunPosition {
-	altitude: number; // degrees above horizon
-	azimuth: number; // compass bearing (0 = North)
-}
+// Types
+export type {
+	Coordinates,
+	SolarPosition,
+	SunTimes,
+	PolarCondition,
+	DailySunData,
+	SeasonalSummary
+} from './types.js';
 
-export interface DayInfo {
-	sunrise: Date;
-	sunset: Date;
-	solarNoon: Date;
-	dayLength: number; // hours
-}
+// Constants
+export { SAMPLING_INTERVAL_MINUTES, SAMPLES_PER_DAY } from './types.js';
 
-// Placeholder - implementation pending
-export function getSunPosition(
-	_latitude: number,
-	_longitude: number,
-	_date: Date
-): SunPosition {
-	return { altitude: 0, azimuth: 0 };
-}
+// Position module - sun position and times
+export { getSunPosition, getSunTimes, getPolarCondition } from './position.js';
 
-// Placeholder - implementation pending
-export function getDayInfo(
-	_latitude: number,
-	_longitude: number,
-	_date: Date
-): DayInfo {
-	const now = new Date();
-	return {
-		sunrise: now,
-		sunset: now,
-		solarNoon: now,
-		dayLength: 0
-	};
-}
+// Sun hours module - daily sun hour calculation
+export { getDailySunHours } from './sun-hours.js';
+
+// Seasonal module - date range aggregation
+export {
+	getSeasonalSummary,
+	getMonthlySummary,
+	getYearlySummary,
+	getAnnualSummary
+} from './seasonal.js';
