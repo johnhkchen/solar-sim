@@ -263,7 +263,7 @@ nodes:
       Output: docs/knowledge/research/solar-algorithms.md
     priority: 1
     complexity: M
-    status: complete
+    status: ready
     completed_at: "2026-01-28"
     output: docs/knowledge/research/solar-algorithms.md
   - id: S-005-P
@@ -390,10 +390,10 @@ meta:
   total_tasks: 22
   total_milestones: 8
   by_status:
-    ready: 2
+    ready: 3
     pending: 3
     in_progress: 0
-    complete: 17
+    complete: 16
     blocked: 0
   by_priority:
     p1: 15
