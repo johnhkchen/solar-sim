@@ -1,0 +1,425 @@
+version: "1.0"
+last_updated: "2026-01-28"
+milestones:
+  - id: M1
+    title: DAG Introspection
+    description: just dag-status shows real data from task-graph.yaml
+    status: complete
+    tasks:
+      - S-002-I
+  - id: M2
+    title: Frontmatter Scanning
+    description: just dag-refresh reads and validates document frontmatter
+    status: complete
+    tasks:
+      - S-002-I
+    depends_on:
+      - M1
+  - id: M3
+    title: Basic Prompt Generation
+    description: just prompt selects task and outputs usable prompt
+    status: complete
+    tasks:
+      - S-002-I
+    depends_on:
+      - M2
+  - id: M4
+    title: Task Lifecycle
+    description: Task claiming, completion, and recovery mechanisms
+    status: complete
+    tasks:
+      - S-002-I
+    depends_on:
+      - M3
+  - id: M5
+    title: Worktree Commands
+    description: just worktree-* commands for parallel development
+    status: complete
+    tasks:
+      - S-003-I
+    depends_on: []
+  - id: M6
+    title: Ralph Loop
+    description: just ralph runs autonomous agent loop (stretch goal)
+    status: complete
+    tasks:
+      - S-001-I
+    depends_on:
+      - M4
+  - id: M7
+    title: Solar Engine
+    description: Core sun position and sun hours calculations
+    status: pending
+    tasks:
+      - S-005-I
+    depends_on: []
+  - id: M8
+    title: Location System
+    description: Geocoding, coordinate handling, and location UI
+    status: pending
+    tasks:
+      - S-006-I
+    depends_on: []
+stories:
+  - id: S-001
+    title: Ralph Loop Integration
+    status: complete
+    priority: 1
+    milestone: M6
+    path: docs/archive/phase-1-foundation/stories/S-001-ralph-loop.md
+  - id: S-002
+    title: DAG Parsing and Prompt Generation
+    status: complete
+    priority: 1
+    milestones:
+      - M1
+      - M2
+      - M3
+      - M4
+    path: docs/archive/phase-1-foundation/stories/S-002-dag-parsing.md
+  - id: S-003
+    title: Git Worktree Workflow
+    status: complete
+    priority: 2
+    milestone: M5
+    path: docs/archive/phase-1-foundation/stories/S-003-git-worktrees.md
+  - id: S-004
+    title: SvelteKit Project Scaffolding
+    status: complete
+    priority: 2
+    milestone: null
+    path: docs/archive/phase-1-foundation/stories/S-004-sveltekit-scaffold.md
+  - id: S-005
+    title: Solar Calculation Engine
+    status: pending
+    priority: 1
+    milestone: M7
+    path: docs/active/stories/S-005-solar-engine.md
+  - id: S-006
+    title: Location Input System
+    status: pending
+    priority: 1
+    milestone: M8
+    path: docs/active/stories/S-006-location-input.md
+nodes:
+  - id: S-001-R
+    title: Research Ralph Loop integration
+    story: S-001
+    milestone: M6
+    priority: 1
+    complexity: M
+    status: complete
+    completed_at: "2026-01-27"
+    output: docs/knowledge/research/ralph-loop.md
+  - id: S-001-P
+    title: Plan Ralph Loop implementation
+    story: S-001
+    milestone: M6
+    priority: 1
+    complexity: S
+    status: complete
+    completed_at: "2026-01-27"
+    output: docs/archive/phase-1-foundation/stories/S-001-ralph-loop.md
+  - id: S-001-I
+    title: Implement Ralph Loop integration
+    story: S-001
+    milestone: M6
+    priority: 1
+    complexity: M
+    status: complete
+    output: tools/ralph.sh
+    completed_at: "2026-01-28"
+  - id: S-002-R
+    title: Research DAG parsing approaches
+    story: S-002
+    priority: 1
+    complexity: M
+    status: complete
+    completed_at: "2026-01-27"
+    output: docs/knowledge/research/dag-parsing.md
+  - id: S-002-P
+    title: Plan DAG parsing implementation
+    story: S-002
+    priority: 1
+    complexity: S
+    status: complete
+    completed_at: "2026-01-27"
+    output: docs/archive/phase-1-foundation/stories/S-002-dag-parsing.md
+  - id: S-002-I
+    title: Implement DAG parsing and prompt generation
+    story: S-002
+    priority: 1
+    complexity: L
+    status: complete
+    completed_at: "2026-01-27"
+    output: tools/
+  - id: S-003-R
+    title: Research Git worktree workflow
+    story: S-003
+    milestone: M5
+    priority: 2
+    complexity: M
+    status: complete
+    completed_at: "2026-01-27"
+    output: docs/knowledge/research/git-worktrees.md
+  - id: S-003-P
+    title: Plan Git worktree workflow
+    story: S-003
+    milestone: M5
+    priority: 2
+    complexity: S
+    status: complete
+    completed_at: "2026-01-27"
+    output: docs/archive/phase-1-foundation/stories/S-003-git-worktrees.md
+  - id: S-003-I
+    title: Implement Git worktree commands
+    story: S-003
+    milestone: M5
+    priority: 2
+    complexity: S
+    status: complete
+    output: justfile
+    completed_at: "2026-01-28"
+  - id: S-004-I
+    title: Initialize SvelteKit project
+    story: S-004
+    priority: 2
+    complexity: S
+    status: complete
+    output: src/
+    completed_at: "2026-01-28"
+  - id: T-003-01
+    title: Implement worktree-new command
+    story: S-003
+    milestone: M5
+    priority: 2
+    complexity: M
+    status: complete
+    path: docs/archive/phase-1-foundation/tickets/T-003-01-worktree-new.md
+    output: justfile
+    completed_at: "2026-01-28"
+  - id: T-003-02
+    title: Implement worktree-list and worktree-remove commands
+    story: S-003
+    milestone: M5
+    priority: 2
+    complexity: M
+    status: complete
+    path: docs/archive/phase-1-foundation/tickets/T-003-02-worktree-list-remove.md
+    output: justfile
+    completed_at: "2026-01-28"
+  - id: T-003-03
+    title: Add coordination docs and prompt warning
+    story: S-003
+    milestone: M5
+    priority: 2
+    complexity: S
+    status: complete
+    path: docs/archive/phase-1-foundation/tickets/T-003-03-coordination-docs.md
+    output: tools/prompt.ts
+    completed_at: "2026-01-28"
+  - id: T-001-01
+    title: Implement core Ralph loop script
+    story: S-001
+    milestone: M6
+    priority: 1
+    complexity: M
+    status: complete
+    path: docs/archive/phase-1-foundation/tickets/T-001-01-core-loop.md
+    output: tools/ralph.sh
+    completed_at: "2026-01-28"
+  - id: T-001-02
+    title: Implement Ralph logging infrastructure
+    story: S-001
+    milestone: M6
+    priority: 1
+    complexity: S
+    status: complete
+    path: docs/archive/phase-1-foundation/tickets/T-001-02-logging.md
+    output: tools/ralph.sh
+    completed_at: "2026-01-28"
+  - id: T-001-03
+    title: Add just ralph command and documentation
+    story: S-001
+    milestone: M6
+    priority: 1
+    complexity: S
+    status: complete
+    path: docs/archive/phase-1-foundation/tickets/T-001-03-justfile.md
+    output: justfile
+    completed_at: "2026-01-28"
+  - id: S-005-R
+    title: Research solar calculation algorithms
+    story: S-005
+    milestone: M7
+    description: |
+      Research solar position algorithms and libraries:
+      - Compare SunCalc, solar-calculator, and NOAA algorithms
+      - Evaluate accuracy vs complexity tradeoffs
+      - Determine time resolution for sun-hour integration
+      - Assess atmospheric refraction requirements
+      - Document edge cases (polar regions, extreme dates)
+
+      Output: docs/knowledge/research/solar-algorithms.md
+    priority: 1
+    complexity: M
+    status: ready
+  - id: S-005-P
+    title: Plan solar engine implementation
+    story: S-005
+    milestone: M7
+    description: |
+      Based on research, create implementation plan:
+      - Define module structure in src/lib/solar/
+      - Specify TypeScript interfaces for inputs/outputs
+      - Plan test cases for standard and edge scenarios
+      - Create tickets for implementation work
+
+      Output: Updated S-005 story with implementation plan
+    priority: 1
+    complexity: S
+    status: pending
+  - id: S-005-I
+    title: Implement solar calculation engine
+    story: S-005
+    milestone: M7
+    description: |
+      Implement the solar engine per the plan:
+      - Sun position calculator (altitude, azimuth)
+      - Sun hours integrator
+      - Seasonal aggregator
+      - Light category classifier
+
+      Output: src/lib/solar/
+    priority: 1
+    complexity: L
+    status: pending
+  - id: S-006-R
+    title: Research location and geocoding options
+    story: S-006
+    milestone: M8
+    description: |
+      Research geocoding and location handling:
+      - Evaluate geocoding APIs for Cloudflare Workers
+      - Compare client-side vs edge proxy approaches
+      - Research timezone inference from coordinates
+      - Document browser geolocation API patterns
+      - Identify coordinate format edge cases
+
+      Output: docs/knowledge/research/location-geocoding.md
+    priority: 1
+    complexity: M
+    status: ready
+  - id: S-006-P
+    title: Plan location system implementation
+    story: S-006
+    milestone: M8
+    description: |
+      Based on research, create implementation plan:
+      - Define module structure in src/lib/geo/
+      - Specify component architecture for location input
+      - Plan API integration and error handling
+      - Create tickets for implementation work
+
+      Output: Updated S-006 story with implementation plan
+    priority: 1
+    complexity: S
+    status: pending
+  - id: S-006-I
+    title: Implement location input system
+    story: S-006
+    milestone: M8
+    description: |
+      Implement the location system per the plan:
+      - Geocoding API integration
+      - Coordinate validation and parsing
+      - Timezone detection
+      - Location input UI component
+
+      Output: src/lib/geo/, src/lib/components/
+    priority: 1
+    complexity: L
+    status: pending
+edges:
+  - from: S-001-R
+    to: S-001-P
+  - from: S-001-P
+    to: S-001-I
+  - from: S-002-R
+    to: S-002-P
+  - from: S-002-P
+    to: S-002-I
+  - from: S-003-R
+    to: S-003-P
+  - from: S-003-P
+    to: S-003-I
+  - from: S-003-P
+    to: T-003-01
+  - from: T-003-01
+    to: T-003-02
+  - from: T-003-02
+    to: T-003-03
+  - from: T-003-03
+    to: S-003-I
+  - from: S-001-P
+    to: S-004-I
+  - from: S-002-P
+    to: S-004-I
+  - from: S-003-P
+    to: S-004-I
+  - from: S-001-P
+    to: T-001-01
+  - from: T-001-01
+    to: T-001-02
+  - from: T-001-02
+    to: T-001-03
+  - from: T-001-03
+    to: S-001-I
+  - from: S-005-R
+    to: S-005-P
+  - from: S-005-P
+    to: S-005-I
+  - from: S-006-R
+    to: S-006-P
+  - from: S-006-P
+    to: S-006-I
+meta:
+  total_stories: 6
+  total_tasks: 22
+  total_milestones: 8
+  by_status:
+    ready: 2
+    pending: 4
+    in_progress: 0
+    complete: 16
+    blocked: 0
+  by_priority:
+    p1: 15
+    p2: 7
+  by_milestone:
+    M1:
+      - S-002-I
+    M2:
+      - S-002-I
+    M3:
+      - S-002-I
+    M4:
+      - S-002-I
+    M5:
+      - S-003-I
+      - T-003-01
+      - T-003-02
+      - T-003-03
+    M6:
+      - S-001-I
+      - T-001-01
+      - T-001-02
+      - T-001-03
+    M7:
+      - S-005-R
+      - S-005-P
+      - S-005-I
+    M8:
+      - S-006-R
+      - S-006-P
+      - S-006-I
