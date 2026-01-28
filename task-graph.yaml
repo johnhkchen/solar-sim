@@ -263,7 +263,9 @@ nodes:
       Output: docs/knowledge/research/solar-algorithms.md
     priority: 1
     complexity: M
-    status: ready
+    status: complete
+    completed_at: "2026-01-28"
+    output: docs/knowledge/research/solar-algorithms.md
   - id: S-005-P
     title: Plan solar engine implementation
     story: S-005
@@ -278,7 +280,7 @@ nodes:
       Output: Updated S-005 story with implementation plan
     priority: 1
     complexity: S
-    status: pending
+    status: ready
   - id: S-005-I
     title: Implement solar calculation engine
     story: S-005
@@ -389,9 +391,9 @@ meta:
   total_milestones: 8
   by_status:
     ready: 2
-    pending: 4
+    pending: 3
     in_progress: 0
-    complete: 16
+    complete: 17
     blocked: 0
   by_priority:
     p1: 15

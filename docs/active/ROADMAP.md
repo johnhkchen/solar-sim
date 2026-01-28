@@ -2,121 +2,120 @@
 
 > **Last Updated**: 2026-01-28
 
-A human-readable dashboard of project status and planned work.
+This document tracks project status and planned work. For milestone details, see `docs/active/MILESTONES.md`.
 
 ---
 
 ## Current Phase: Application Features
 
-The foundation and tooling phase is complete. We're now building the core application features using concurrent ralph loops in separate worktrees.
+Phase 1 (Foundation & Tooling) is complete. We're now building the core application features using two concurrent ralph loops in separate worktrees.
 
 ### Active Worktrees
+
+Two worktrees are set up for parallel development. Each worktree handles one story independently, and work merges back to main via pull request.
 
 | Worktree | Branch | Story | Focus |
 |----------|--------|-------|-------|
 | `solar-sim-solar` | `feature/solar` | S-005 | Solar calculation engine |
 | `solar-sim-location` | `feature/location` | S-006 | Location input system |
 
-To run concurrent loops, open two terminals:
-```bash
-# Terminal 1
-cd ../solar-sim-solar && just ralph
+### Running Concurrent Loops
 
-# Terminal 2
-cd ../solar-sim-location && just ralph
+Open two terminal windows and run each loop independently. They will process their respective R-P-I chains without conflicting since the stories touch different files.
+
+```bash
+# Terminal 1: Solar engine work
+cd ../solar-sim-solar
+just ralph
+
+# Terminal 2: Location system work
+cd ../solar-sim-location
+just ralph
 ```
 
----
-
-## Milestones
-
-### Phase 1: Foundation (Complete)
-
-| Milestone | Description | Status |
-|-----------|-------------|--------|
-| **M1** | DAG Introspection | Complete |
-| **M2** | Frontmatter Scanning | Complete |
-| **M3** | Basic Prompt | Complete |
-| **M4** | Task Lifecycle | Complete |
-| **M5** | Worktree Commands | Complete |
-| **M6** | Ralph Loop | Complete |
-
-### Phase 2: Application Features (In Progress)
-
-| Milestone | Description | Status | Worktree |
-|-----------|-------------|--------|----------|
-| **M7** | Solar Engine | Pending | `solar-sim-solar` |
-| **M8** | Location System | Pending | `solar-sim-location` |
+For detailed orchestration instructions, see `docs/knowledge/playbook/concurrent-ralph.md`.
 
 ---
 
 ## Active Stories
 
-### S-005: Solar Calculation Engine (M7)
-**Goal**: Accurate sun position and sun hours calculations
+### S-005: Solar Calculation Engine
+
+Implements sun position and sun hours calculations in `src/lib/solar/`.
 
 | Task | Description | Status |
 |------|-------------|--------|
-| **S-005-R** | Research solar algorithms | READY |
+| S-005-R | Research solar algorithms | Ready |
 | S-005-P | Plan implementation | Pending |
 | S-005-I | Implement engine | Pending |
 
-### S-006: Location Input System (M8)
-**Goal**: Geocoding, coordinates, and location UI
+### S-006: Location Input System
+
+Implements geocoding, coordinates, and location UI in `src/lib/geo/` and `src/lib/components/`.
 
 | Task | Description | Status |
 |------|-------------|--------|
-| **S-006-R** | Research geocoding options | READY |
+| S-006-R | Research geocoding options | Ready |
 | S-006-P | Plan implementation | Pending |
 | S-006-I | Implement system | Pending |
 
 ---
 
-## Task Graph Summary
+## Task Graph
 
 ```
 READY NOW (parallel in separate worktrees):
-├── S-005-R  Research solar algorithms    [P1] → M7 (solar-sim-solar)
-└── S-006-R  Research geocoding options   [P1] → M8 (solar-sim-location)
+├── S-005-R  Research solar algorithms      [P1] → solar-sim-solar
+└── S-006-R  Research geocoding options     [P1] → solar-sim-location
 
-PENDING:
-├── S-005-P  Plan solar engine (needs S-005-R)
-├── S-005-I  Implement solar engine (needs S-005-P)
-├── S-006-P  Plan location system (needs S-006-R)
-└── S-006-I  Implement location system (needs S-006-P)
+PENDING (unblocks after research):
+├── S-005-P  Plan solar engine
+├── S-006-P  Plan location system
+
+PENDING (unblocks after planning):
+├── S-005-I  Implement solar engine
+└── S-006-I  Implement location system
 ```
 
 ---
 
-## Completed Work
+## Milestone Summary
 
-### Phase 1 Stories (Archived)
+### Phase 2: In Progress
 
-All phase 1 stories have been moved to `docs/archive/phase-1-foundation/`:
+| Milestone | Description | Status | Worktree |
+|-----------|-------------|--------|----------|
+| M7 | Solar Engine | Pending | solar-sim-solar |
+| M8 | Location System | Pending | solar-sim-location |
 
-| ID | Title | Milestone |
-|----|-------|-----------|
-| S-001 | Ralph Loop Integration | M6 |
-| S-002 | DAG Parsing & Prompts | M1-M4 |
-| S-003 | Git Worktree Workflow | M5 |
-| S-004 | SvelteKit Scaffolding | — |
+### Phase 1: Complete
+
+| Milestone | Description | Status |
+|-----------|-------------|--------|
+| M1 | DAG Introspection | Complete |
+| M2 | Frontmatter Scanning | Complete |
+| M3 | Basic Prompt | Complete |
+| M4 | Task Lifecycle | Complete |
+| M5 | Worktree Commands | Complete |
+| M6 | Ralph Loop | Complete |
+
+Phase 1 artifacts are archived in `docs/archive/phase-1-foundation/`.
 
 ---
 
-## Upcoming Work
+## Upcoming Phases
 
 ### Phase 3: Integration
-After M7 and M8 complete:
-- Connect solar engine to location input
-- Build results display component
-- Create sun path visualization
-- Implement seasonal overview
 
-### Phase 4: Polish & Launch
-- Recommendations engine
-- Shareable URLs
-- Mobile optimization
-- Documentation and landing page
+After M7 and M8 complete, integrate the solar engine with location input to produce the core user experience described in `docs/happy_path.md`.
+
+### Phase 4: Visualization
+
+Add sun path diagrams, seasonal heatmaps, and calendar views.
+
+### Phase 5: Polish & Launch
+
+Recommendations engine, shareable URLs, mobile optimization, and documentation.
 
 ---
 
@@ -127,32 +126,26 @@ After M7 and M8 complete:
 just dag-status
 ```
 
-**Run concurrent loops**:
+**Create worktrees** (if not already created):
 ```bash
-# From main worktree, create worktrees if needed:
 just worktree-new solar
 just worktree-new location
+```
 
-# Then run loops in separate terminals
+**Run loops**:
+```bash
 cd ../solar-sim-solar && just ralph
 cd ../solar-sim-location && just ralph
 ```
 
-**Monitor loops**:
+**Monitor**:
 ```bash
-# From each worktree
-just ralph-status
-just ralph-logs
+just ralph-status   # in each worktree
+just ralph-logs     # tail logs
 ```
 
-**Merge completed work**:
+**After PR merged, clean up**:
 ```bash
-# From worktree, after task complete:
-git push -u origin feature/<name>
-gh pr create
-
-# From main, after PR merged:
-just worktree-remove <name>
+just worktree-remove solar
+just worktree-remove location
 ```
-
-See `docs/knowledge/playbook/concurrent-ralph.md` for detailed orchestration guide.

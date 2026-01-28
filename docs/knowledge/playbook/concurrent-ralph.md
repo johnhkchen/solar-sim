@@ -4,59 +4,213 @@ This playbook explains how to set up and run multiple autonomous ralph loops in 
 
 ## Prerequisites
 
-Before starting concurrent loops, ensure the main repo has tasks ready for multiple workers. Each loop needs its own stream of work to avoid conflicts. Partition tasks by story or feature area so agents don't compete for the same items.
+Before starting concurrent loops, the main repo must have:
+1. All current work committed (clean `git status`)
+2. Tasks partitioned into independent stories with non-overlapping file ownership
+3. Both stories' research tasks in ready status
 
-## Quick Start
+For Solar-Sim phase 2, stories S-005 (solar engine) and S-006 (location system) are already partitioned. S-005 touches `src/lib/solar/` while S-006 touches `src/lib/geo/` and `src/lib/components/`.
 
-From the main repo, create two worktrees by running `just worktree-new alpha` followed by `just worktree-new beta`. This creates directories at `../solar-sim-alpha` and `../solar-sim-beta`, each on their own feature branch.
+## Setup Procedure
 
-Open two terminal windows or tmux panes. In the first, cd into `../solar-sim-alpha` and run `just ralph`. In the second, cd into `../solar-sim-beta` and run `just ralph`. Both loops now run independently, claiming and completing tasks from the shared DAG.
+### Step 1: Commit Everything to Main
 
-## Task Partitioning Strategies
-
-The simplest approach assigns one story per worktree. When planning a new phase, create stories that represent independent work streams. Alpha handles S-005 while beta handles S-006. Since each story has its own tasks, the loops never collide.
-
-An alternative uses priority tiers. Configure alpha to work on P1 tasks and beta on P2 tasks. The prompt tool sorts by priority, so you could modify it to filter by priority range per worktree. This requires a small code change but allows finer-grained control.
-
-For very parallel phases, use a hybrid approach where stories are independent but tickets within a story can be worked in parallel by different loops. This works when tickets don't share files.
-
-## Monitoring Both Loops
-
-Each worktree has its own `.ralph/` directory with logs and heartbeat. To monitor both loops from the main repo, open a split terminal and tail both log directories:
+From the main repo, ensure all changes are committed:
 
 ```bash
-tail -f ../solar-sim-alpha/.ralph/log/*.log &
-tail -f ../solar-sim-beta/.ralph/log/*.log
+git status
+# Should show "nothing to commit, working tree clean"
+# If not, commit or stash changes before proceeding
 ```
 
-The heartbeat files show when each loop last claimed a task. If a heartbeat goes stale for more than a few minutes, the loop may have crashed.
+### Step 2: Create Worktrees
 
-## Handling Merge Conflicts
+Create one worktree per story from the main repo:
 
-When both loops try to update task-graph.yaml, the second PR to merge will conflict. This is expected and handled naturally. The agent that hit the conflict should run `git fetch origin main && git rebase origin/main` to get the latest graph, check that their task wasn't already claimed by the other agent, and push again.
+```bash
+just worktree-new solar
+just worktree-new location
+```
 
-To minimize conflicts, merge PRs promptly. Stale branches diverge further and create larger conflicts. If you're manually orchestrating, merge PRs in small batches rather than letting them queue up.
+This creates:
+- `../solar-sim-solar` on branch `feature/solar`
+- `../solar-sim-location` on branch `feature/location`
 
-## Recovery Procedures
+The command automatically installs project and tools dependencies.
 
-If a loop crashes, its claimed task remains in-progress. From the main repo, run `just task-reset <task-id>` to release it. The task returns to ready status and whichever loop picks it up next can continue the work.
+### Step 3: Verify Worktrees
 
-To restart a crashed loop, cd into its worktree and run `just ralph` again. The loop will fetch main, check for available tasks, and resume operation.
+Check that each worktree can run the tooling:
 
-If both loops stop responding, check for system-level issues like disk space or network problems. The logs in `.ralph/log/` often reveal what went wrong.
+```bash
+cd ../solar-sim-solar
+just dag-status
+# Should show task graph with ready tasks
 
-## Scaling Beyond Two Loops
+cd ../solar-sim-location
+just dag-status
+# Should show the same task graph
+```
 
-Two concurrent loops works well for small to medium projects. Adding a third loop increases coordination overhead and merge conflict frequency. Only add more loops if you have enough independent work streams to keep them all busy.
+If `just dag-status` fails with module errors, install dependencies manually:
 
-For larger projects, consider running loops on different machines with a shared git remote. The same worktree workflow applies, just with network latency added to push/pull operations.
+```bash
+npm install
+cd tools && npm install && cd ..
+```
 
-## Shutting Down
+### Step 4: Sync Worktrees (If Needed)
 
-To gracefully stop a loop, press Ctrl+C in its terminal. The loop will finish its current task before exiting. If you need to stop immediately, Ctrl+C twice will force quit.
+If you made commits to main after creating the worktrees, sync them:
 
-After stopping, run `just ralph-status` in each worktree to verify the loops have stopped. Check for any in-progress tasks with `just dag-status` from main and reset them if needed.
+```bash
+cd ../solar-sim-solar
+git rebase main
 
-## Cleanup
+cd ../solar-sim-location
+git rebase main
+```
 
-When a phase is complete, remove the worktrees by running `just worktree-remove alpha` and `just worktree-remove beta` from the main repo. This deletes the worktree directories and cleans up the git worktree references. The feature branches remain if they have unmerged work, or get deleted if already merged.
+### Step 5: Verify Task Availability
+
+Both worktrees should see the same ready tasks:
+
+```bash
+cd ../solar-sim-solar && just dag-status
+cd ../solar-sim-location && just dag-status
+```
+
+Both should show S-005-R and S-006-R as ready.
+
+## Running the Loops
+
+Open two terminal windows or tmux panes.
+
+**Terminal 1 (solar engine):**
+```bash
+cd /path/to/solar-sim-solar
+just ralph
+```
+
+**Terminal 2 (location system):**
+```bash
+cd /path/to/solar-sim-location
+just ralph
+```
+
+Each loop will claim its first task, execute it, and continue through the R-P-I chain.
+
+## Monitoring
+
+### Check Loop Status
+
+From each worktree:
+```bash
+just ralph-status
+```
+
+### Tail Logs
+
+From each worktree:
+```bash
+just ralph-logs
+```
+
+### Check Task Progress
+
+From any worktree:
+```bash
+just dag-status
+```
+
+Note that each worktree's task-graph.yaml may differ as tasks are claimed and completed. The authoritative state is in main after PRs merge.
+
+## Handling Problems
+
+### Loop Crashes
+
+If a loop crashes, the claimed task stays in-progress. Reset it:
+
+```bash
+cd ../solar-sim-solar   # whichever worktree crashed
+just task-reset S-005-R  # the stuck task
+just ralph               # restart the loop
+```
+
+### Dependency Errors
+
+If you see "Cannot find package" errors:
+
+```bash
+npm install
+cd tools && npm install && cd ..
+```
+
+### Worktree Out of Sync
+
+If a worktree diverged from main:
+
+```bash
+git fetch origin main
+git rebase main
+# Resolve any conflicts, then continue
+```
+
+## After Completion
+
+When each loop finishes its story:
+
+### Push and Create PR
+
+From each worktree:
+```bash
+git push -u origin feature/solar  # or feature/location
+gh pr create --title "S-005: Solar calculation engine" --body "Implements sun position and sun hours calculations."
+```
+
+### Merge PRs
+
+After review, merge both PRs to main. The merges bring the implementation code and task status updates into main.
+
+### Clean Up Worktrees
+
+From the main repo:
+```bash
+just worktree-remove solar
+just worktree-remove location
+```
+
+## Troubleshooting Checklist
+
+If things aren't working:
+
+1. **Is main clean?** Run `git status` in main
+2. **Are dependencies installed?** Run `npm install` and `cd tools && npm install`
+3. **Is the worktree synced?** Run `git rebase main` in the worktree
+4. **Are tasks ready?** Run `just dag-status` to see available tasks
+5. **Is another task stuck?** Run `just task-reset <task-id>` if needed
+
+## Quick Reference
+
+```bash
+# Setup
+just worktree-new solar
+just worktree-new location
+
+# Run (in separate terminals)
+cd ../solar-sim-solar && just ralph
+cd ../solar-sim-location && just ralph
+
+# Monitor
+just ralph-status
+just ralph-logs
+just dag-status
+
+# After completion
+git push -u origin feature/<name>
+gh pr create
+
+# Cleanup (from main)
+just worktree-remove solar
+just worktree-remove location
+```
