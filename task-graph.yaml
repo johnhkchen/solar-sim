@@ -101,6 +101,12 @@ stories:
     priority: 1
     milestone: M8
     path: docs/active/stories/S-006-location-input.md
+  - id: S-007
+    title: Task Management Workflow Audit
+    status: pending
+    priority: 1
+    milestone: null
+    path: docs/active/stories/S-007-workflow-audit.md
 nodes:
   - id: S-001-R
     title: Research Ralph Loop integration
@@ -452,8 +458,7 @@ nodes:
       Output: src/lib/geo/timezone.ts
     priority: 1
     complexity: S
-    status: in-progress
-    claimed_at: "2026-01-28T01:55:22.630Z"
+    status: ready
   - id: T-006-03
     title: Implement geocoding integration
     story: S-006
@@ -483,6 +488,48 @@ nodes:
       Output: src/lib/components/LocationInput.svelte
     priority: 1
     complexity: L
+    status: pending
+  - id: S-007-R
+    title: Research workflow failure modes
+    story: S-007
+    description: |
+      Analyze the failures that occurred during S-005/S-006 execution:
+      - Document each failure mode with specific examples
+      - Trace root causes in the tooling
+      - Answer research questions from story
+      - Evaluate proposed fixes for feasibility
+
+      Output: docs/knowledge/research/workflow-failures.md
+    priority: 1
+    complexity: M
+    status: ready
+  - id: S-007-P
+    title: Plan workflow fixes
+    story: S-007
+    description: |
+      Based on research, create implementation plan:
+      - Prioritize fixes by impact and complexity
+      - Define test cases for each fix
+      - Create tickets for implementation work
+      - Update story with detailed approach
+
+      Output: Updated S-007 story with implementation plan
+    priority: 1
+    complexity: S
+    status: pending
+  - id: S-007-I
+    title: Implement workflow fixes
+    story: S-007
+    description: |
+      Implement the planned fixes to task management:
+      - Mandatory story filter for ralph loops
+      - Worktree validation at loop start
+      - Deliverable verification on task-complete
+      - Enhanced audit logging
+
+      Output: tools/prompt.ts, tools/ralph.sh, tools/dag.ts
+    priority: 1
+    complexity: M
     status: pending
 edges:
   - from: S-001-R
@@ -547,14 +594,18 @@ edges:
     to: T-006-04
   - from: T-006-04
     to: S-006-I
+  - from: S-007-R
+    to: S-007-P
+  - from: S-007-P
+    to: S-007-I
 meta:
-  total_stories: 6
-  total_tasks: 30
+  total_stories: 7
+  total_tasks: 33
   total_milestones: 8
   by_status:
-    ready: 1
-    pending: 2
-    in_progress: 1
+    ready: 3
+    pending: 4
+    in_progress: 0
     complete: 26
     blocked: 0
   by_priority:
