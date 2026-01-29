@@ -6,9 +6,9 @@ This document tracks project status and planned work.
 
 ---
 
-## Current Phase: Combined Recommendations
+## Current Phase: Full App Integration
 
-Climate integration is complete. Users can see frost dates, hardiness zones, and a growing season timeline. Now we're adding the recommendation engine that combines shade and climate data into plant suggestions.
+S-018 (Enhanced Climate and Location) is complete. Now wiring together all components into a cohesive end-to-end user experience with PlotViewer integration, shade-adjusted recommendations, and mobile optimization.
 
 ### Completed Phases
 
@@ -26,36 +26,49 @@ Climate integration is complete. Users can see frost dates, hardiness zones, and
 
 **Phase 7: Climate Integration** added frost date lookup, hardiness zone calculation, and growing season timeline component. Archived in `docs/archive/phase-7-climate/`.
 
+**Phase 8: Combined Recommendations** merged shade and climate into plant suggestions with planting calendar and seasonal light charts. Archived in `docs/archive/phase-8-recommendations/`.
+
+**Phase 9: Isometric Landscape View** added terrain slope modeling, shadow polygon projection, isometric view component, and time scrubber for shadow animation. Archived in `docs/archive/phase-9-isometric-view/`.
+
+**Phase 10: Enhanced Climate and Location** added Leaflet map picker, Open-Meteo historical weather API integration, Köppen climate classification with gardening notes, monthly temperature chart, and NOAA CPC seasonal outlooks. Archived in `docs/archive/phase-9-enhanced-climate/`.
+
 ---
 
-## Active Story: S-016 Combined Recommendations
+## Active Story: S-019 Full App Integration
 
-Merging shade and climate data into unified plant recommendations with planting calendar and seasonal views.
+Wiring together all components into a cohesive end-to-end user experience. The PlotViewer (isometric view, shadow animation) and shade calculations exist but aren't connected to the results page.
+
+### Key Goals
+
+- Integrate PlotViewer into results page for obstacle/slope input
+- Connect shade calculations to recommendations display
+- End-to-end flow from location → obstacles → shade-adjusted results
+- LocalStorage persistence for plot data
+- Mobile-friendly layout
 
 ### Ticket Status
 
 | Ticket | Title | Status | Depends On |
 |--------|-------|--------|------------|
-| T-016-01 | Research plant recommendations | Ready | — |
-| T-016-02 | Add plant types | Pending | T-016-01 |
-| T-016-03 | Create plant database | Pending | T-016-02 |
-| T-016-04 | Implement recommendation engine | Pending | T-016-02 |
-| T-016-05 | Create recommendations component | Pending | T-016-04 |
-| T-016-06 | Create planting calendar | Pending | T-016-04 |
-| T-016-07 | Create seasonal light chart | Pending | T-016-04 |
-| T-016-08 | Results page integration | Pending | T-016-05, T-016-06, T-016-07 |
+| T-019-01 | Research full app integration approach | Complete | — |
+| T-019-02 | Integrate PlotViewer into results page | Ready | T-019-01 |
+| T-019-03 | Connect shade calculations to recommendations | Pending | T-019-02 |
+| T-019-04 | Calculate monthly shade data for seasonal chart | Pending | T-019-03 |
+| T-019-05 | Add localStorage persistence for plot data | Pending | T-019-02 |
+| T-019-06 | Optimize PlotViewer for mobile layout | Pending | T-019-02 |
+| T-019-07 | Add integration tests for full flow | Pending | T-019-03, T-019-04, T-019-05 |
 
 ### Running the Sprint
 
 ```bash
-RALPH_ALLOW_MAIN=1 WORKTREE_STORY=S-016 just ralph
+RALPH_ALLOW_MAIN=1 WORKTREE_STORY=S-019 just ralph
 ```
 
 ---
 
-## Upcoming Phases
+## Upcoming Phase
 
-### Phase 8: Polish & Launch
+### Phase 11: Polish & Launch
 
 - Mobile optimization
 - Shareable URLs with preview metadata

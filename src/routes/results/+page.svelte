@@ -11,6 +11,7 @@
 		PlantRecommendations,
 		PlantingCalendar,
 		SeasonalLightChart,
+		TemperatureChart,
 		type MonthlySunData
 	} from '$lib/components';
 	import {
@@ -20,11 +21,21 @@
 		dayOfYearToDate,
 		formatHardinessZone,
 		formatZoneTempRange,
+		fetchHistoricalTemperatures,
+		calculateMonthlyAverages,
+		calculateFrostDatesFromHistory,
+		classifyKoppen,
+		getCompleteOutlook,
+		formatOutlookCategory,
+		formatDroughtStatus,
 		type FrostDates,
 		type HardinessZone,
 		type GrowingSeason,
 		type GrowingSeasonRange,
-		type ClimateData
+		type ClimateData,
+		type MonthlyAverages,
+		type KoppenClassification,
+		type CombinedOutlook
 	} from '$lib/climate';
 	import { getRecommendations, createRecommendationInput } from '$lib/plants';
 	import type { PageData } from './$types';
@@ -38,21 +49,72 @@
 	const coords: Coordinates = { latitude, longitude };
 	const sunData: DailySunData = $derived(getDailySunHours(coords, new Date()));
 
-	// Fetch climate data for the location
+	// Fetch climate data for the location (fallback to embedded tables)
 	const frostDates: FrostDates = $derived(getFrostDates(coords));
 	const hardinessZone: HardinessZone = $derived(getHardinessZone(coords));
 
+	// Enhanced climate data state (async)
+	let enhancedClimateLoading = $state(true);
+	let enhancedClimateError = $state<string | null>(null);
+	let monthlyTemps = $state<MonthlyAverages | null>(null);
+	let koppenClass = $state<KoppenClassification | null>(null);
+	let seasonalOutlook = $state<CombinedOutlook | null>(null);
+	let enhancedFrostDates = $state<FrostDates | null>(null);
+	let showOutlookDetails = $state(false);
+
+	// Fetch enhanced climate data from Open-Meteo
+	async function loadEnhancedClimate() {
+		try {
+			enhancedClimateLoading = true;
+			enhancedClimateError = null;
+
+			// Fetch historical temperatures and outlook in parallel
+			const [temps, outlook] = await Promise.all([
+				fetchHistoricalTemperatures(coords, 30),
+				getCompleteOutlook(coords)
+			]);
+
+			// Calculate derived data
+			monthlyTemps = calculateMonthlyAverages(temps);
+			enhancedFrostDates = calculateFrostDatesFromHistory(temps, latitude);
+			seasonalOutlook = outlook;
+
+			// Calculate Köppen classification from monthly data
+			// Need to estimate monthly precipitation - use placeholder for now since
+			// Open-Meteo archive doesn't include precip in our query
+			// TODO: Add precipitation to API query for accurate Köppen classification
+			const precipPlaceholder = [80, 70, 60, 40, 20, 5, 2, 5, 15, 40, 60, 80]; // Typical Mediterranean pattern
+			koppenClass = classifyKoppen({
+				latitude,
+				temps: monthlyTemps.avgTemps,
+				precip: precipPlaceholder
+			});
+		} catch (err) {
+			enhancedClimateError = err instanceof Error ? err.message : 'Failed to load climate data';
+		} finally {
+			enhancedClimateLoading = false;
+		}
+	}
+
+	// Load enhanced climate data on mount
+	$effect(() => {
+		loadEnhancedClimate();
+	});
+
+	// Use enhanced frost dates if available, otherwise fall back to embedded tables
+	const activeFrostDates: FrostDates = $derived(enhancedFrostDates ?? frostDates);
+
 	// Build growing season data for the timeline component
 	const growingSeason: GrowingSeason = $derived.by(() => {
-		const typicalLength = calculateGrowingSeasonLength(frostDates);
+		const typicalLength = calculateGrowingSeasonLength(activeFrostDates);
 
 		// Calculate short and long season lengths from frost date variance
 		const shortLength = Math.max(
 			0,
-			frostDates.firstFallFrost.early - frostDates.lastSpringFrost.late
+			activeFrostDates.firstFallFrost.early - activeFrostDates.lastSpringFrost.late
 		);
 		const longLength =
-			frostDates.firstFallFrost.late - frostDates.lastSpringFrost.early;
+			activeFrostDates.firstFallFrost.late - activeFrostDates.lastSpringFrost.early;
 
 		const lengthDays: GrowingSeasonRange = {
 			short: shortLength,
@@ -63,8 +125,8 @@
 		return {
 			lengthDays,
 			frostFreePeriod: {
-				start: frostDates.lastSpringFrost,
-				end: frostDates.firstFallFrost
+				start: activeFrostDates.lastSpringFrost,
+				end: activeFrostDates.firstFallFrost
 			},
 			coolSeasonWindows: {
 				spring: null,
@@ -81,7 +143,7 @@
 
 	// Build climate data for the recommendation engine
 	const climateData: ClimateData = $derived({
-		frostDates,
+		frostDates: activeFrostDates,
 		hardinessZone,
 		growingSeason,
 		fetchedAt: new Date()
@@ -103,6 +165,20 @@
 		const input = createRecommendationInput(sunData.sunHours, climateData);
 		return getRecommendations(input);
 	});
+
+	// Helper to get color class for outlook categories
+	function getOutlookColorClass(type: string): string {
+		switch (type) {
+			case 'Above':
+				return 'outlook-warm';
+			case 'Below':
+				return 'outlook-cool';
+			case 'Normal':
+				return 'outlook-normal';
+			default:
+				return 'outlook-neutral';
+		}
+	}
 </script>
 
 <main>
@@ -136,29 +212,128 @@
 				{/if}
 			</div>
 
+			{#if koppenClass}
+				<div class="climate-card koppen-card">
+					<h3>Köppen Climate</h3>
+					<div class="koppen-badge">{koppenClass.code}</div>
+					<p class="koppen-description">{koppenClass.description}</p>
+				</div>
+			{:else if enhancedClimateLoading}
+				<div class="climate-card koppen-card loading">
+					<h3>Köppen Climate</h3>
+					<div class="loading-placeholder">Loading...</div>
+				</div>
+			{/if}
+		</div>
+
+		<div class="climate-summary">
 			<div class="climate-card frost-card">
 				<h3>Frost Dates</h3>
 				<div class="frost-dates">
 					<div class="frost-date">
 						<span class="frost-label">Last Spring Frost</span>
-						<span class="frost-value">{formatFrostDate(frostDates.lastSpringFrost.median)}</span>
+						<span class="frost-value">{formatFrostDate(activeFrostDates.lastSpringFrost.median)}</span>
 						<span class="frost-range">
-							{formatFrostDate(frostDates.lastSpringFrost.early)} – {formatFrostDate(frostDates.lastSpringFrost.late)}
+							{formatFrostDate(activeFrostDates.lastSpringFrost.early)} – {formatFrostDate(activeFrostDates.lastSpringFrost.late)}
 						</span>
 					</div>
 					<div class="frost-date">
 						<span class="frost-label">First Fall Frost</span>
-						<span class="frost-value">{formatFrostDate(frostDates.firstFallFrost.median)}</span>
+						<span class="frost-value">{formatFrostDate(activeFrostDates.firstFallFrost.median)}</span>
 						<span class="frost-range">
-							{formatFrostDate(frostDates.firstFallFrost.early)} – {formatFrostDate(frostDates.firstFallFrost.late)}
+							{formatFrostDate(activeFrostDates.firstFallFrost.early)} – {formatFrostDate(activeFrostDates.firstFallFrost.late)}
 						</span>
 					</div>
 				</div>
+				{#if enhancedFrostDates && enhancedFrostDates.confidence === 'high'}
+					<p class="frost-source">Based on 30 years of historical data</p>
+				{/if}
 			</div>
+
+			{#if monthlyTemps}
+				<div class="climate-card temp-chart-card">
+					<TemperatureChart monthly={monthlyTemps} units="fahrenheit" />
+				</div>
+			{:else if enhancedClimateLoading}
+				<div class="climate-card temp-chart-card loading">
+					<h3>Temperature Patterns</h3>
+					<div class="loading-placeholder chart-placeholder">Loading temperature data...</div>
+				</div>
+			{/if}
 		</div>
 
+		{#if koppenClass}
+			<div class="gardening-notes">
+				<h3>Gardening Notes for {koppenClass.description} Climate</h3>
+				<p>{koppenClass.gardeningNotes}</p>
+			</div>
+		{/if}
+
+		{#if seasonalOutlook && seasonalOutlook.isWithinCoverage}
+			<div class="seasonal-outlook">
+				<div class="outlook-header">
+					<h3>Seasonal Outlook</h3>
+					{#if seasonalOutlook.seasonal}
+						<span class="outlook-period">{seasonalOutlook.seasonal.validPeriod}</span>
+					{/if}
+				</div>
+
+				{#if seasonalOutlook.seasonal}
+					<div class="outlook-categories">
+						<div class="outlook-item {getOutlookColorClass(seasonalOutlook.seasonal.temperature.type)}">
+							<span class="outlook-label">Temperature</span>
+							<span class="outlook-value">
+								{formatOutlookCategory(seasonalOutlook.seasonal.temperature, 'temperatures')}
+							</span>
+						</div>
+						{#if seasonalOutlook.seasonal.precipitation}
+							<div class="outlook-item {getOutlookColorClass(seasonalOutlook.seasonal.precipitation.type)}">
+								<span class="outlook-label">Precipitation</span>
+								<span class="outlook-value">
+									{formatOutlookCategory(seasonalOutlook.seasonal.precipitation, 'precipitation')}
+								</span>
+							</div>
+						{/if}
+					</div>
+				{/if}
+
+				{#if seasonalOutlook.drought && seasonalOutlook.drought.status !== 'none'}
+					<div class="drought-status">
+						<span class="drought-label">Drought:</span>
+						<span class="drought-value">{formatDroughtStatus(seasonalOutlook.drought.status)}</span>
+					</div>
+				{/if}
+
+				<button
+					type="button"
+					class="outlook-toggle"
+					onclick={() => (showOutlookDetails = !showOutlookDetails)}
+				>
+					{showOutlookDetails ? 'Hide guidance' : 'Show gardening guidance'}
+				</button>
+
+				{#if showOutlookDetails}
+					<div class="outlook-guidance">
+						{#each seasonalOutlook.guidance.split('\n\n') as paragraph}
+							<p>{paragraph}</p>
+						{/each}
+					</div>
+				{/if}
+			</div>
+		{:else if seasonalOutlook && !seasonalOutlook.isWithinCoverage}
+			<p class="outlook-unavailable">
+				Seasonal outlook data is only available for US locations. Plan according to historical climate patterns for your region.
+			</p>
+		{/if}
+
+		{#if enhancedClimateError}
+			<p class="climate-error">
+				Could not load enhanced climate data: {enhancedClimateError}. Showing estimates from embedded tables.
+			</p>
+		{/if}
+
 		<div class="timeline-section">
-			<GrowingSeasonTimeline {frostDates} {growingSeason} />
+			<GrowingSeasonTimeline frostDates={activeFrostDates} {growingSeason} />
 		</div>
 	</section>
 
@@ -176,7 +351,7 @@
 		</div>
 
 		<div class="calendar-section">
-			<PlantingCalendar {frostDates} {growingSeason} />
+			<PlantingCalendar frostDates={activeFrostDates} {growingSeason} />
 		</div>
 	</section>
 
@@ -275,6 +450,29 @@
 		font-style: italic;
 	}
 
+	.koppen-card {
+		background: #fef3c7;
+		border: 1px solid #fcd34d;
+	}
+
+	.koppen-card h3 {
+		color: #92400e;
+	}
+
+	.koppen-badge {
+		font-size: 2rem;
+		font-weight: 700;
+		color: #b45309;
+		line-height: 1;
+		font-family: ui-monospace, monospace;
+	}
+
+	.koppen-description {
+		margin: 0.5rem 0 0;
+		font-size: 0.875rem;
+		color: #78350f;
+	}
+
 	.frost-card {
 		background: #eff6ff;
 		border: 1px solid #93c5fd;
@@ -311,6 +509,204 @@
 	.frost-range {
 		font-size: 0.75rem;
 		color: #64748b;
+	}
+
+	.frost-source {
+		margin: 0.75rem 0 0;
+		font-size: 0.75rem;
+		color: #3b82f6;
+		font-style: italic;
+	}
+
+	.temp-chart-card {
+		background: transparent;
+		border: none;
+		padding: 0;
+	}
+
+	.temp-chart-card :global(.temperature-chart) {
+		height: 100%;
+	}
+
+	.loading {
+		opacity: 0.7;
+	}
+
+	.loading-placeholder {
+		font-size: 0.875rem;
+		color: #6b7280;
+		font-style: italic;
+	}
+
+	.chart-placeholder {
+		height: 150px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: #f9fafb;
+		border-radius: 4px;
+	}
+
+	.gardening-notes {
+		margin-top: 1.5rem;
+		padding: 1rem;
+		background: #fffbeb;
+		border: 1px solid #fde68a;
+		border-radius: 8px;
+	}
+
+	.gardening-notes h3 {
+		margin: 0 0 0.5rem;
+		font-size: 0.9375rem;
+		color: #92400e;
+	}
+
+	.gardening-notes p {
+		margin: 0;
+		font-size: 0.875rem;
+		color: #78350f;
+		line-height: 1.6;
+	}
+
+	.seasonal-outlook {
+		margin-top: 1.5rem;
+		padding: 1rem;
+		background: #f0f9ff;
+		border: 1px solid #bae6fd;
+		border-radius: 8px;
+	}
+
+	.outlook-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 0.75rem;
+	}
+
+	.outlook-header h3 {
+		margin: 0;
+		font-size: 0.9375rem;
+		color: #0369a1;
+	}
+
+	.outlook-period {
+		font-size: 0.75rem;
+		color: #0284c7;
+		font-weight: 500;
+	}
+
+	.outlook-categories {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.outlook-item {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 0.5rem 0.75rem;
+		border-radius: 4px;
+		font-size: 0.875rem;
+	}
+
+	.outlook-warm {
+		background: #fef2f2;
+		border: 1px solid #fecaca;
+	}
+
+	.outlook-cool {
+		background: #eff6ff;
+		border: 1px solid #bfdbfe;
+	}
+
+	.outlook-normal {
+		background: #f0fdf4;
+		border: 1px solid #bbf7d0;
+	}
+
+	.outlook-neutral {
+		background: #f9fafb;
+		border: 1px solid #e5e7eb;
+	}
+
+	.outlook-label {
+		font-weight: 500;
+		color: #374151;
+	}
+
+	.outlook-value {
+		color: #6b7280;
+	}
+
+	.drought-status {
+		margin-top: 0.75rem;
+		padding: 0.5rem 0.75rem;
+		background: #fef3c7;
+		border: 1px solid #fcd34d;
+		border-radius: 4px;
+		font-size: 0.875rem;
+	}
+
+	.drought-label {
+		font-weight: 500;
+		color: #92400e;
+	}
+
+	.drought-value {
+		margin-left: 0.5rem;
+		color: #b45309;
+	}
+
+	.outlook-toggle {
+		margin-top: 0.75rem;
+		padding: 0.375rem 0.75rem;
+		font-size: 0.75rem;
+		color: #0369a1;
+		background: white;
+		border: 1px solid #bae6fd;
+		border-radius: 4px;
+		cursor: pointer;
+		transition: background-color 0.15s;
+	}
+
+	.outlook-toggle:hover {
+		background: #e0f2fe;
+	}
+
+	.outlook-guidance {
+		margin-top: 0.75rem;
+		padding: 0.75rem;
+		background: white;
+		border-radius: 4px;
+	}
+
+	.outlook-guidance p {
+		margin: 0 0 0.75rem;
+		font-size: 0.875rem;
+		color: #374151;
+		line-height: 1.6;
+	}
+
+	.outlook-guidance p:last-child {
+		margin-bottom: 0;
+	}
+
+	.outlook-unavailable {
+		margin-top: 1rem;
+		font-size: 0.875rem;
+		color: #6b7280;
+		font-style: italic;
+	}
+
+	.climate-error {
+		margin-top: 1rem;
+		padding: 0.75rem;
+		background: #fef2f2;
+		border: 1px solid #fecaca;
+		border-radius: 4px;
+		font-size: 0.875rem;
+		color: #991b1b;
 	}
 
 	.timeline-section {
@@ -357,6 +753,12 @@
 
 		.recommendations-grid {
 			grid-template-columns: 1fr;
+		}
+
+		.outlook-header {
+			flex-direction: column;
+			align-items: flex-start;
+			gap: 0.25rem;
 		}
 	}
 </style>

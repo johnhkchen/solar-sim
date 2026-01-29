@@ -69,3 +69,54 @@ export {
 	celsiusToFahrenheit,
 	fahrenheitToCelsius
 } from './hardiness-zone.js';
+
+// Open-Meteo historical weather types
+export type {
+	DailyTemperatureData,
+	MonthlyAverages
+} from './openmeteo.js';
+
+// Open-Meteo historical weather functions
+export {
+	fetchHistoricalTemperatures,
+	calculateFrostDatesFromHistory,
+	calculateMonthlyAverages,
+	clearCache,
+	clearAllCache
+} from './openmeteo.js';
+
+// Köppen climate classification types
+export type {
+	MonthlyClimateData,
+	KoppenClassification
+} from './koppen.js';
+
+// Köppen climate classification functions
+export {
+	classifyKoppen,
+	getKoppenDescription,
+	getKoppenGardeningNotes,
+	getKoppenPrimaryTypeName
+} from './koppen.js';
+
+// Seasonal outlook types
+export type {
+	OutlookCategoryType,
+	OutlookCategory,
+	SeasonalOutlook,
+	DroughtStatus,
+	DroughtOutlook,
+	CombinedOutlook
+} from './outlook.js';
+
+// Seasonal outlook functions
+export {
+	fetchSeasonalOutlook,
+	fetchDroughtOutlook,
+	getOutlookGuidance,
+	getCompleteOutlook,
+	clearOutlookCache,
+	clearAllOutlookCache,
+	formatOutlookCategory,
+	formatDroughtStatus
+} from './outlook.js';

@@ -11,32 +11,37 @@
 		type GeocodingError,
 		type ParseError
 	} from '$lib/geo';
+	import MapPicker from './MapPicker.svelte';
 
 	/**
 	 * Input mode determines which UI is shown for location entry.
+	 * - map: Interactive map picker (default)
 	 * - search: Address search using Nominatim geocoding
 	 * - coordinates: Manual lat/lon entry with format detection
-	 * - geolocation: Browser geolocation API
 	 */
-	type InputMode = 'search' | 'coordinates' | 'geolocation';
+	type InputMode = 'map' | 'search' | 'coordinates';
 
 	/**
 	 * Source of the current location, used for attribution display.
 	 */
-	type LocationSource = 'geocoding' | 'manual' | 'geolocation';
+	type LocationSource = 'map' | 'geocoding' | 'manual' | 'geolocation';
 
 	/**
-	 * Component events emitted when location is selected or cleared.
+	 * Component props for LocationInput.
 	 */
-	interface LocationInputEvents {
+	interface LocationInputProps {
 		onselect?: (location: Location, source: LocationSource, attribution?: string) => void;
 		onclear?: () => void;
+		initialMode?: InputMode;
 	}
 
-	let { onselect, onclear }: LocationInputEvents = $props();
+	let { onselect, onclear, initialMode = 'map' }: LocationInputProps = $props();
 
-	// State for input mode selection
-	let mode: InputMode = $state('search');
+	// State for input mode selection - map is the default
+	let mode: InputMode = $state(initialMode);
+
+	// Mobile map collapsed state
+	let mapCollapsed = $state(false);
 
 	// Address search state
 	let searchQuery = $state('');
@@ -50,10 +55,6 @@
 	let coordsError = $state<ParseError | null>(null);
 	let coordsPreview = $state<{ lat: number; lon: number; format: string } | null>(null);
 
-	// Geolocation state
-	let geoLoading = $state(false);
-	let geoError = $state<string | null>(null);
-	let geoPermission = $state<PermissionState | null>(null);
 
 	// Selected location state
 	let selectedLocation = $state<Location | null>(null);
@@ -61,24 +62,14 @@
 	let selectedAttribution = $state<string | null>(null);
 
 	/**
-	 * Checks the current geolocation permission status.
+	 * Handles location selection from the map picker.
 	 */
-	async function checkGeoPermission(): Promise<void> {
-		if (!navigator.permissions) {
-			geoPermission = 'prompt';
-			return;
-		}
+	function handleMapSelect(location: Location): void {
+		selectedLocation = location;
+		selectedSource = 'map';
+		selectedAttribution = null;
 
-		try {
-			const status = await navigator.permissions.query({ name: 'geolocation' });
-			geoPermission = status.state;
-
-			status.addEventListener('change', () => {
-				geoPermission = status.state;
-			});
-		} catch {
-			geoPermission = 'prompt';
-		}
+		onselect?.(location, 'map');
 	}
 
 	/**
@@ -165,70 +156,6 @@
 	}
 
 	/**
-	 * Requests the user's current location via browser geolocation.
-	 */
-	async function requestGeolocation(): Promise<void> {
-		if (!navigator.geolocation) {
-			geoError = 'Geolocation is not supported by your browser.';
-			return;
-		}
-
-		geoLoading = true;
-		geoError = null;
-
-		try {
-			const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-				navigator.geolocation.getCurrentPosition(resolve, reject, {
-					enableHighAccuracy: true,
-					timeout: 10000,
-					maximumAge: 60000
-				});
-			});
-
-			const coords = {
-				latitude: position.coords.latitude,
-				longitude: position.coords.longitude
-			};
-
-			const tzResult = getTimezone(coords);
-
-			const location: Location = {
-				...coords,
-				timezone: tzResult.timezone,
-				timezoneIsEstimate: tzResult.isEstimate
-			};
-
-			selectedLocation = location;
-			selectedSource = 'geolocation';
-			selectedAttribution = null;
-			geoPermission = 'granted';
-
-			onselect?.(location, 'geolocation');
-		} catch (error) {
-			if (error instanceof GeolocationPositionError) {
-				switch (error.code) {
-					case error.PERMISSION_DENIED:
-						geoError = 'Location access was denied. Please enable location permissions in your browser settings.';
-						geoPermission = 'denied';
-						break;
-					case error.POSITION_UNAVAILABLE:
-						geoError = 'Your location could not be determined. Please try again or enter coordinates manually.';
-						break;
-					case error.TIMEOUT:
-						geoError = 'Location request timed out. Please try again.';
-						break;
-					default:
-						geoError = 'An error occurred while getting your location.';
-				}
-			} else {
-				geoError = 'An unexpected error occurred.';
-			}
-		} finally {
-			geoLoading = false;
-		}
-	}
-
-	/**
 	 * Clears the current selection and resets state.
 	 */
 	function clearSelection(): void {
@@ -242,7 +169,7 @@
 		coordsInput = '';
 		coordsPreview = null;
 		coordsError = null;
-		geoError = null;
+		mapCollapsed = false;
 
 		onclear?.();
 	}
@@ -257,19 +184,15 @@
 		showResults = false;
 		coordsError = null;
 		coordsPreview = null;
-		geoError = null;
-
-		if (newMode === 'geolocation') {
-			checkGeoPermission();
-		}
+		mapCollapsed = false;
 	}
 
-	// Check geolocation permission on mount if starting in geo mode
-	$effect(() => {
-		if (mode === 'geolocation' && geoPermission === null) {
-			checkGeoPermission();
-		}
-	});
+	/**
+	 * Toggles the map collapsed state for mobile view.
+	 */
+	function toggleMapCollapsed(): void {
+		mapCollapsed = !mapCollapsed;
+	}
 </script>
 
 <div class="location-input">
@@ -298,6 +221,15 @@
 			<button
 				type="button"
 				role="tab"
+				aria-selected={mode === 'map'}
+				class:active={mode === 'map'}
+				onclick={() => setMode('map')}
+			>
+				Map
+			</button>
+			<button
+				type="button"
+				role="tab"
 				aria-selected={mode === 'search'}
 				class:active={mode === 'search'}
 				onclick={() => setMode('search')}
@@ -313,19 +245,26 @@
 			>
 				Coordinates
 			</button>
-			<button
-				type="button"
-				role="tab"
-				aria-selected={mode === 'geolocation'}
-				class:active={mode === 'geolocation'}
-				onclick={() => setMode('geolocation')}
-			>
-				Current Location
-			</button>
 		</div>
 
 		<div class="mode-content" role="tabpanel">
-			{#if mode === 'search'}
+			{#if mode === 'map'}
+				<div class="map-mode">
+					<button
+						type="button"
+						class="collapse-toggle mobile-only"
+						onclick={toggleMapCollapsed}
+						aria-expanded={!mapCollapsed}
+					>
+						{mapCollapsed ? 'Show map' : 'Hide map'}
+						<span class="collapse-icon" class:collapsed={mapCollapsed}>▼</span>
+					</button>
+					{#if !mapCollapsed}
+						<MapPicker onselect={handleMapSelect} />
+					{/if}
+					<p class="map-hint">Click on the map to select a location, or use the search bar and GPS button on the map.</p>
+				</div>
+			{:else if mode === 'search'}
 				<form class="search-form" onsubmit={(e) => { e.preventDefault(); handleSearch(); }}>
 					<input
 						type="text"
@@ -414,40 +353,6 @@
 					</p>
 				</div>
 
-			{:else if mode === 'geolocation'}
-				<div class="geolocation-form">
-					{#if geoPermission === 'denied'}
-						<div class="geo-denied">
-							<p>Location access has been blocked for this site.</p>
-							<p>To use your current location, please update your browser settings to allow location access, then refresh this page.</p>
-							<p class="geo-hint">Alternatively, you can search for your location or enter coordinates manually.</p>
-						</div>
-					{:else}
-						<button
-							type="button"
-							class="geo-button"
-							onclick={requestGeolocation}
-							disabled={geoLoading}
-						>
-							{#if geoLoading}
-								<span class="spinner"></span>
-								Getting your location...
-							{:else}
-								Use my current location
-							{/if}
-						</button>
-
-						{#if geoError}
-							<div class="error" role="alert">
-								{geoError}
-							</div>
-						{/if}
-
-						<p class="geo-note">
-							Location accuracy depends on your device. Desktop computers typically use IP-based location which may be less precise than GPS on mobile devices.
-						</p>
-					{/if}
-				</div>
 			{/if}
 		</div>
 	{/if}
@@ -693,75 +598,51 @@
 		margin: 0;
 	}
 
-	/* Geolocation form */
-	.geolocation-form {
+	/* Map mode */
+	.map-mode {
 		display: flex;
 		flex-direction: column;
-		gap: 1rem;
+		gap: 0.75rem;
 	}
 
-	.geo-button {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		gap: 0.5rem;
-		padding: 1rem 2rem;
-		background: #0066cc;
-		color: white;
-		border: none;
-		border-radius: 4px;
-		cursor: pointer;
-		font-size: 1rem;
-	}
-
-	.geo-button:hover:not(:disabled) {
-		background: #0052a3;
-	}
-
-	.geo-button:disabled {
-		background: #6699cc;
-		cursor: wait;
-	}
-
-	.spinner {
-		width: 1rem;
-		height: 1rem;
-		border: 2px solid rgba(255, 255, 255, 0.3);
-		border-top-color: white;
-		border-radius: 50%;
-		animation: spin 0.8s linear infinite;
-	}
-
-	@keyframes spin {
-		to {
-			transform: rotate(360deg);
-		}
-	}
-
-	.geo-note {
+	.map-hint {
 		font-size: 0.8125rem;
 		color: #777;
 		margin: 0;
 	}
 
-	.geo-denied {
-		padding: 1rem;
-		background: #fff3cd;
-		border: 1px solid #ffc107;
+	.collapse-toggle {
+		display: none;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		padding: 0.75rem 1rem;
+		background: #f5f5f5;
+		border: 1px solid #ddd;
 		border-radius: 4px;
+		cursor: pointer;
+		font-size: 0.9375rem;
+		color: #333;
 	}
 
-	.geo-denied p {
-		margin: 0 0 0.75rem;
+	.collapse-toggle:hover {
+		background: #eee;
 	}
 
-	.geo-denied p:last-child {
-		margin-bottom: 0;
+	.collapse-icon {
+		font-size: 0.75rem;
+		transition: transform 0.2s ease;
 	}
 
-	.geo-hint {
-		font-size: 0.875rem;
-		color: #856404;
+	.collapse-icon.collapsed {
+		transform: rotate(-90deg);
+	}
+
+	/* Mobile-only elements */
+	@media (max-width: 640px) {
+		.mobile-only {
+			display: flex;
+		}
 	}
 
 	/* Error messages */
