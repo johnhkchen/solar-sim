@@ -47,109 +47,114 @@ milestones:
     status: complete
 stories: []
 nodes:
-  - id: T-017-01
-    title: Research slope modeling and isometric rendering
-    story: S-017
-    description: See docs/active/tickets/T-017-01-slope-isometric-research.md for details.
+  - id: T-018-01
+    title: Research enhanced climate data and map picker
+    story: S-018
+    description: See docs/active/tickets/T-018-01-climate-location-research.md for details.
     priority: 1
     complexity: M
-    status: complete
+    status: ready
     assignee: null
-    output: docs/knowledge/research/slope-isometric.md
-    path: docs/active/tickets/T-017-01-slope-isometric-research.md
-    completed_at: "2026-01-29T19:45:00.000Z"
-  - id: T-017-02
-    title: Add slope data types and calculations
-    story: S-017
-    description: Create `src/lib/solar/slope.ts` with types for representing plot slope and functions for calculating effective sun angles on sloped terrain.
+    output: docs/knowledge/research/enhanced-climate.md
+    path: docs/active/tickets/T-018-01-climate-location-research.md
+  - id: T-018-02
+    title: Build Leaflet map picker component
+    story: S-018
+    description: Create `src/lib/components/MapPicker.svelte` that renders an interactive map where users can click to select a location, search with autocomplete, or use GPS.
+    priority: 1
+    complexity: M
+    status: pending
+    assignee: null
+    output: src/lib/components/MapPicker.svelte
+    path: docs/active/tickets/T-018-02-map-picker-component.md
+  - id: T-018-03
+    title: Implement Open-Meteo historical weather client
+    story: S-018
+    description: Create `src/lib/climate/openmeteo.ts` with functions to fetch historical daily temperature data and compute climate metrics from it.
+    priority: 1
+    complexity: M
+    status: pending
+    assignee: null
+    output: src/lib/climate/openmeteo.ts
+    path: docs/active/tickets/T-018-03-openmeteo-client.md
+  - id: T-018-04
+    title: Implement Köppen climate classification
+    story: S-018
+    description: Create `src/lib/climate/koppen.ts` with functions to determine Köppen climate type from monthly climate data.
+    priority: 1
+    complexity: M
+    status: pending
+    assignee: null
+    output: src/lib/climate/koppen.ts
+    path: docs/active/tickets/T-018-04-koppen-classification.md
+  - id: T-018-05
+    title: Add seasonal weather outlook and anomaly display
+    story: S-018
+    description: Long-term "zones are shifting" messaging is less actionable than knowing "this winter has been 10°F warmer than normal and the 3-month outlook shows continued above-normal temps." Gardeners establishing new plantings need to know about current anomalies and near-term patterns, not just historical averages.
+    priority: 1
+    complexity: M
+    status: pending
+    assignee: null
+    output: src/lib/climate/outlook.ts
+    path: docs/active/tickets/T-018-05-climate-trends.md
+  - id: T-018-06
+    title: Create monthly temperature chart component
+    story: S-018
+    description: Create `src/lib/components/TemperatureChart.svelte` that shows a year's worth of temperature patterns.
     priority: 1
     complexity: S
-    status: complete
+    status: pending
     assignee: null
-    output: src/lib/solar/slope.ts
-    path: docs/active/tickets/T-017-02-slope-types.md
-    completed_at: "2026-01-29T19:38:00.000Z"
-  - id: T-017-03
-    title: Implement shadow polygon calculation
-    story: S-017
-    description: Create `src/lib/solar/shadow-projection.ts` with functions to compute shadow polygons for each obstacle type given sun position and terrain slope.
+    output: src/lib/components/TemperatureChart.svelte
+    path: docs/active/tickets/T-018-06-temperature-chart.md
+  - id: T-018-07
+    title: Update LocationInput to use map picker
+    story: S-018
+    description: Update `src/lib/components/LocationInput.svelte` to use MapPicker as the default input method, while keeping the existing search and coordinates modes as alternatives.
     priority: 1
     complexity: M
-    status: complete
+    status: pending
     assignee: null
-    output: src/lib/solar/shadow-projection.ts
-    path: docs/active/tickets/T-017-03-shadow-polygons.md
-    completed_at: "2026-01-29T19:50:00.000Z"
-  - id: T-017-04
-    title: Add slope input to PlotEditor
-    story: S-017
-    description: Extend PlotEditor.svelte to include slope angle and direction inputs. Show a visual indicator of slope in the plan view.
-    priority: 1
-    complexity: S
-    status: complete
-    assignee: null
-    output: src/lib/components/PlotEditor.svelte
-    path: docs/active/tickets/T-017-04-slope-input-ui.md
-    completed_at: "2026-01-29T20:05:00.000Z"
-  - id: T-017-05
-    title: Build isometric view component
-    story: S-017
-    description: Create `src/lib/components/IsometricView.svelte` that renders the same plot data as PlotEditor but in an isometric projection showing the pseudo-3D scene.
-    priority: 1
-    complexity: L
-    status: complete
-    assignee: null
-    output: src/lib/components/IsometricView.svelte
-    path: docs/active/tickets/T-017-05-isometric-view.md
-    completed_at: "2026-01-29T20:45:00.000Z"
-  - id: T-017-06
-    title: Add time scrubber for shadow animation
-    story: S-017
-    description: Create `src/lib/components/TimeScrubber.svelte` that controls the time used for shadow calculations and integrates with the isometric view.
+    output: src/lib/components/LocationInput.svelte
+    path: docs/active/tickets/T-018-07-location-input-update.md
+  - id: T-018-08
+    title: Update results page with enhanced climate display
+    story: S-018
+    description: Update `src/routes/results/+page.svelte` to display Köppen classification, monthly temperatures, and climate trends alongside existing climate data.
     priority: 1
     complexity: M
-    status: complete
+    status: pending
     assignee: null
-    output: src/lib/components/TimeScrubber.svelte
-    path: docs/active/tickets/T-017-06-time-scrubber.md
-    completed_at: "2026-01-29T21:15:00.000Z"
-  - id: T-017-07
-    title: Add view toggle and integrate components
-    story: S-017
-    description: Create `src/lib/components/PlotViewer.svelte` that wraps PlotEditor and IsometricView with a toggle between them, plus shared time controls for shadow visualization.
-    priority: 1
-    complexity: M
-    status: complete
-    assignee: null
-    output: src/lib/components/PlotViewer.svelte
-    path: docs/active/tickets/T-017-07-view-toggle-integration.md
-    completed_at: "2026-01-29T21:30:00.000Z"
+    output: src/routes/results/+page.svelte
+    path: docs/active/tickets/T-018-08-climate-display-update.md
 edges:
-  - from: T-017-01
-    to: T-017-02
-  - from: T-017-02
-    to: T-017-03
-  - from: T-017-02
-    to: T-017-04
-  - from: T-017-03
-    to: T-017-05
-  - from: T-017-04
-    to: T-017-05
-  - from: T-017-05
-    to: T-017-06
-  - from: T-017-05
-    to: T-017-07
-  - from: T-017-06
-    to: T-017-07
+  - from: T-018-01
+    to: T-018-02
+  - from: T-018-01
+    to: T-018-03
+  - from: T-018-03
+    to: T-018-04
+  - from: T-018-01
+    to: T-018-05
+  - from: T-018-03
+    to: T-018-06
+  - from: T-018-02
+    to: T-018-07
+  - from: T-018-04
+    to: T-018-08
+  - from: T-018-05
+    to: T-018-08
+  - from: T-018-06
+    to: T-018-08
 meta:
   total_stories: 0
-  total_tasks: 7
+  total_tasks: 8
   total_milestones: 11
   by_status:
-    ready: 0
-    pending: 0
+    ready: 1
+    pending: 7
     in_progress: 0
-    complete: 7
+    complete: 0
     blocked: 0
   by_priority: {}
   by_milestone: {}
