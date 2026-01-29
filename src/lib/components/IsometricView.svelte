@@ -29,10 +29,11 @@
 		sunPosition = null
 	}: IsometricViewProps = $props();
 
-	// View state for pan and zoom
+	// View state for pan, zoom, and rotation
 	let scale = $state(8); // pixels per meter
 	let panX = $state(0);
 	let panY = $state(0);
+	let viewRotation = $state(0); // rotation in degrees (0, 45, 90, etc.)
 
 	// Canvas dimensions
 	let width = $state(600);
@@ -56,13 +57,21 @@
 	 * Converts world coordinates (x, y, z) to isometric screen coordinates.
 	 * X is east in world space, Y is north, Z is up.
 	 * The projection creates the classic "3/4 view" appearance.
+	 * View rotation rotates the entire scene around the Z axis.
 	 */
 	function toIso(x: number, y: number, z: number = 0): { x: number; y: number } {
+		// Apply view rotation around the Z axis (in world space)
+		const rotRad = viewRotation * (Math.PI / 180);
+		const cosRot = Math.cos(rotRad);
+		const sinRot = Math.sin(rotRad);
+		const rx = x * cosRot - y * sinRot;
+		const ry = x * sinRot + y * cosRot;
+
 		// Standard isometric: rotate 45 deg around Z, then tilt down 35.264 deg
 		// Simplified to: screenX = cos(30) * (x - y), screenY = sin(30) * (x + y) - z
 		return {
-			x: COS30 * (x - y) * scale + centerX + panX,
-			y: SIN30 * (x + y) * scale - z * scale + centerY + panY
+			x: COS30 * (rx - ry) * scale + centerX + panX,
+			y: SIN30 * (rx + ry) * scale - z * scale + centerY + panY
 		};
 	}
 
@@ -80,9 +89,17 @@
 		const adjX = (screenX - centerX - panX) / scale;
 		const adjY = (screenY - centerY - panY) / scale;
 
-		// Inverse isometric transform
-		const worldX = (adjY / SIN30 + adjX / COS30) / 2;
-		const worldY = (adjY / SIN30 - adjX / COS30) / 2;
+		// Inverse isometric transform (gives rotated coordinates)
+		const rx = (adjY / SIN30 + adjX / COS30) / 2;
+		const ry = (adjY / SIN30 - adjX / COS30) / 2;
+
+		// Inverse rotation
+		const rotRad = viewRotation * (Math.PI / 180);
+		const cosRot = Math.cos(rotRad);
+		const sinRot = Math.sin(rotRad);
+		const worldX = rx * cosRot + ry * sinRot;
+		const worldY = -rx * sinRot + ry * cosRot;
+
 		return { x: worldX, y: worldY };
 	}
 
@@ -100,7 +117,7 @@
 	 */
 	const groundPlaneSize = 40; // meters in each direction from center
 
-	const groundVertices = $derived(() => {
+	const groundVertices = $derived.by(() => {
 		const half = groundPlaneSize / 2;
 		// Corners in world space: NW, NE, SE, SW (going clockwise from top-left in plan view)
 		const corners: Array<{ x: number; y: number; z: number }> = [
@@ -110,17 +127,19 @@
 			{ x: -half, y: -half, z: 0 }  // SW
 		];
 
-		// Apply slope: z = -sin(slope) * (x*sin(aspect) + y*cos(aspect))
-		// Slope aspect is the downhill direction, so the terrain drops in that direction
+		// Apply slope: aspect is the direction the slope FACES (uphill/surface normal direction)
+		// So downhill is OPPOSITE to aspect. A south-facing slope (aspect=180) drops toward north.
+		// z drops as we move in the downhill direction (opposite to aspect)
 		if (slope.angle >= 0.5) {
 			const slopeRad = slope.angle * (Math.PI / 180);
 			const aspectRad = slope.aspect * (Math.PI / 180);
 			const dropPerMeter = Math.sin(slopeRad);
 
 			for (const c of corners) {
-				// Distance in the aspect direction determines z drop
+				// Distance in the aspect (facing) direction - positive means uphill
 				const aspectDist = c.x * Math.sin(aspectRad) + c.y * Math.cos(aspectRad);
-				c.z = -dropPerMeter * aspectDist;
+				// Terrain is higher in the aspect direction, lower opposite to it
+				c.z = dropPerMeter * aspectDist;
 			}
 		}
 
@@ -156,30 +175,53 @@
 	}
 
 	/**
-	 * Renders a tree obstacle as a trunk with a spherical canopy.
-	 * The trunk is a vertical line, and the canopy is an ellipse.
+	 * Renders a tree obstacle as a trunk with a conical/lollipop canopy.
+	 * The trunk is a vertical line, and the canopy is rendered as stacked
+	 * elliptical disks that form a cone shape (larger at bottom, smaller at top).
 	 */
 	function renderTree(obstacle: PlotObstacle): {
 		trunk: { base: { x: number; y: number }; top: { x: number; y: number } };
-		canopy: { center: { x: number; y: number }; rx: number; ry: number };
+		canopyDisks: Array<{ center: { x: number; y: number }; rx: number; ry: number; opacity: number }>;
 	} {
 		const canopyRadius = obstacle.width / 2;
-		const trunkHeight = Math.max(0, obstacle.height - canopyRadius);
-		const canopyCenter = obstacle.height - canopyRadius;
+		const trunkHeight = Math.max(0, obstacle.height - canopyRadius * 2);
+		const canopyBaseZ = trunkHeight;
+		const canopyHeight = obstacle.height - trunkHeight;
 
 		const base = toIso(obstacle.x, obstacle.y, 0);
 		const trunkTop = toIso(obstacle.x, obstacle.y, trunkHeight);
-		const canopyCenterIso = toIso(obstacle.x, obstacle.y, canopyCenter);
 
-		// Canopy ellipse: circular in world space becomes ellipse in isometric
-		// Width is along the (1, -1) diagonal, height is along (1, 1) diagonal
+		// Create multiple disks from bottom to top of canopy to form cone/lollipop shape
+		// More disks at the top where it's rounder, fewer at the bottom
+		const numDisks = 8;
+		const canopyDisks: Array<{ center: { x: number; y: number }; rx: number; ry: number; opacity: number }> = [];
+
+		for (let i = 0; i < numDisks; i++) {
+			// Progress from 0 (bottom) to 1 (top)
+			const t = i / (numDisks - 1);
+
+			// Height of this disk
+			const diskZ = canopyBaseZ + t * canopyHeight;
+
+			// Radius varies: lollipop/cone shape - wider at bottom, narrower at top
+			// Use a curve that gives a nice rounded cone appearance
+			const radiusFactor = Math.cos(t * Math.PI * 0.5); // 1 at bottom, 0 at top
+			const diskRadius = canopyRadius * Math.max(0.15, radiusFactor);
+
+			const diskCenter = toIso(obstacle.x, obstacle.y, diskZ);
+
+			canopyDisks.push({
+				center: diskCenter,
+				rx: diskRadius * scale * COS30,
+				ry: diskRadius * scale * SIN30,
+				// Lower disks are slightly more transparent to show depth
+				opacity: 0.7 + t * 0.25
+			});
+		}
+
 		return {
 			trunk: { base, top: trunkTop },
-			canopy: {
-				center: canopyCenterIso,
-				rx: canopyRadius * scale * COS30,
-				ry: canopyRadius * scale * SIN30
-			}
+			canopyDisks
 		};
 	}
 
@@ -330,30 +372,47 @@
 	}
 
 	/**
-	 * Resets the view to default position and zoom.
+	 * Resets the view to default position, zoom, and rotation.
 	 */
 	function resetView(): void {
 		scale = 8;
 		panX = 0;
 		panY = 0;
+		viewRotation = 0;
+	}
+
+	/**
+	 * Rotates the view by 45 degrees clockwise.
+	 */
+	function rotateViewCW(): void {
+		viewRotation = (viewRotation + 45) % 360;
+	}
+
+	/**
+	 * Rotates the view by 45 degrees counter-clockwise.
+	 */
+	function rotateViewCCW(): void {
+		viewRotation = (viewRotation - 45 + 360) % 360;
 	}
 
 	// Calculate sun direction indicator position
-	const sunIndicator = $derived(() => {
+	// Sun is placed far from the plot to appear more realistic (small and distant)
+	const sunIndicator = $derived.by(() => {
 		if (!sunPosition || sunPosition.altitude <= 0) return null;
 
 		// Sun direction arrow showing where light comes from
 		const azRad = sunPosition.azimuth * (Math.PI / 180);
-		const distance = 25; // meters from center
+		const distance = 50; // meters from center - farther for realism
 		const sunX = distance * Math.sin(azRad);
 		const sunY = distance * Math.cos(azRad);
 
-		// Place sun indicator at edge of visible area, elevated
+		// Place sun indicator at edge of visible area, elevated based on altitude
+		// Higher altitude = higher in the sky (more Z offset)
 		const altitude = sunPosition.altitude;
 		const sunZ = distance * Math.tan(altitude * (Math.PI / 180));
 
 		return {
-			position: toIso(sunX, sunY, Math.min(sunZ, 30)),
+			position: toIso(sunX, sunY, Math.min(sunZ, 60)),
 			altitude: Math.round(sunPosition.altitude),
 			azimuth: Math.round(sunPosition.azimuth)
 		};
@@ -434,7 +493,7 @@
 
 			<!-- Ground plane -->
 			<polygon
-				points={pointsString(groundVertices())}
+				points={pointsString(groundVertices)}
 				fill="url(#ground-gradient)"
 				stroke="#94a3a0"
 				stroke-width="1"
@@ -495,25 +554,30 @@
 							stroke-width={Math.max(2, 0.3 * scale)}
 							stroke-linecap="round"
 						/>
-						<!-- Canopy (ellipse for sphere in isometric) -->
-						<ellipse
-							cx={tree.canopy.center.x}
-							cy={tree.canopy.center.y}
-							rx={tree.canopy.rx}
-							ry={tree.canopy.ry}
-							fill={colors.fill}
-							fill-opacity="0.85"
-							stroke={colors.stroke}
-							stroke-width="1.5"
-						/>
-						<!-- Canopy highlight for 3D effect -->
-						<ellipse
-							cx={tree.canopy.center.x - tree.canopy.rx * 0.2}
-							cy={tree.canopy.center.y - tree.canopy.ry * 0.3}
-							rx={tree.canopy.rx * 0.3}
-							ry={tree.canopy.ry * 0.3}
-							fill="rgba(255,255,255,0.2)"
-						/>
+						<!-- Canopy rendered as stacked disks forming a cone/lollipop shape -->
+						{#each tree.canopyDisks as disk, i}
+							<ellipse
+								cx={disk.center.x}
+								cy={disk.center.y}
+								rx={disk.rx}
+								ry={disk.ry}
+								fill={colors.fill}
+								fill-opacity={disk.opacity}
+								stroke={i === tree.canopyDisks.length - 1 ? colors.stroke : 'none'}
+								stroke-width="1"
+							/>
+						{/each}
+						<!-- Top highlight for 3D effect -->
+						{@const topDisk = tree.canopyDisks[tree.canopyDisks.length - 1]}
+						{#if topDisk}
+							<ellipse
+								cx={topDisk.center.x - topDisk.rx * 0.3}
+								cy={topDisk.center.y - topDisk.ry * 0.4}
+								rx={topDisk.rx * 0.4}
+								ry={topDisk.ry * 0.4}
+								fill="rgba(255,255,255,0.25)"
+							/>
+						{/if}
 					{:else if obstacle.type === 'building'}
 						{@const building = renderBuilding(obstacle)}
 						<!-- Left face (darker) -->
@@ -592,51 +656,103 @@
 				/>
 			</g>
 
-			<!-- Sun indicator (when sun is up) -->
-			{#if sunIndicator()}
-				{@const sun = sunIndicator()}
-				{#if sun}
-					<g class="sun-indicator">
-						<circle
-							cx={sun.position.x}
-							cy={sun.position.y}
-							r={12}
-							fill="#fbbf24"
+			<!-- Sun indicator (when sun is up) - small and distant for realism -->
+			{#if sunIndicator}
+				{@const sun = sunIndicator}
+				<g class="sun-indicator">
+					<circle
+						cx={sun.position.x}
+						cy={sun.position.y}
+						r={8}
+						fill="#fbbf24"
+						stroke="#f59e0b"
+						stroke-width="1.5"
+					/>
+					<!-- Sun rays -->
+					{#each Array.from({ length: 8 }, (_, i) => i * 45) as angle}
+						{@const rad = angle * (Math.PI / 180)}
+						<line
+							x1={sun.position.x + 10 * Math.cos(rad)}
+							y1={sun.position.y + 10 * Math.sin(rad)}
+							x2={sun.position.x + 14 * Math.cos(rad)}
+							y2={sun.position.y + 14 * Math.sin(rad)}
 							stroke="#f59e0b"
-							stroke-width="2"
+							stroke-width="1.5"
+							stroke-linecap="round"
 						/>
-						<!-- Sun rays -->
-						{#each Array.from({ length: 8 }, (_, i) => i * 45) as angle}
-							{@const rad = angle * (Math.PI / 180)}
-							<line
-								x1={sun.position.x + 14 * Math.cos(rad)}
-								y1={sun.position.y + 14 * Math.sin(rad)}
-								x2={sun.position.x + 20 * Math.cos(rad)}
-								y2={sun.position.y + 20 * Math.sin(rad)}
-								stroke="#f59e0b"
-								stroke-width="2"
-								stroke-linecap="round"
-							/>
-						{/each}
-					</g>
-				{/if}
+					{/each}
+				</g>
 			{/if}
 
-			<!-- Compass rose (fixed to screen) -->
-			<g class="compass" transform="translate({width - 50}, 50)">
-				<circle cx="0" cy="0" r="22" fill="rgba(255,255,255,0.9)" stroke="#d1d5db" stroke-width="1" />
-				<!-- North arrow (standard orientation for compass) -->
-				<polygon
-					points="0,-16 -4,-4 0,-8 4,-4"
-					fill="#dc2626"
+			<!-- Interactive compass with rotation controls -->
+			<!-- Shows cardinal directions as they appear in isometric projection -->
+			<g class="compass-widget" transform="translate({width - 55}, 55)">
+				<!-- Outer ring with rotation buttons -->
+				<circle cx="0" cy="0" r="36" fill="rgba(255,255,255,0.95)" stroke="#d1d5db" stroke-width="1" />
+
+				<!-- CCW rotation button (left arc) -->
+				<path
+					d="M -25.5 -25.5 A 36 36 0 0 0 -25.5 25.5"
+					fill="transparent"
+					stroke="transparent"
+					stroke-width="20"
+					class="rotate-btn"
+					onclick={rotateViewCCW}
+					onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') rotateViewCCW(); }}
+					role="button"
+					tabindex="0"
+					aria-label="Rotate view counter-clockwise"
 				/>
-				<polygon
-					points="0,16 -4,4 0,8 4,4"
-					fill="#374151"
+				<text x="-32" y="4" text-anchor="middle" font-size="14" fill="#9ca3af" class="rotate-label" style="pointer-events: none;">↺</text>
+
+				<!-- CW rotation button (right arc) -->
+				<path
+					d="M 25.5 -25.5 A 36 36 0 0 1 25.5 25.5"
+					fill="transparent"
+					stroke="transparent"
+					stroke-width="20"
+					class="rotate-btn"
+					onclick={rotateViewCW}
+					onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') rotateViewCW(); }}
+					role="button"
+					tabindex="0"
+					aria-label="Rotate view clockwise"
 				/>
-				<text x="0" y="-26" text-anchor="middle" font-size="11" fill="#374151" font-weight="bold">
-					N
-				</text>
+				<text x="32" y="4" text-anchor="middle" font-size="14" fill="#9ca3af" class="rotate-label" style="pointer-events: none;">↻</text>
+
+				<!-- Inner compass rose - directions in isometric screen space -->
+				<!-- Apply view rotation: positive viewRotation rotates world CW, so compass rotates CCW -->
+				<g transform="rotate({-viewRotation})">
+					<!-- In isometric projection (without view rotation):
+					     North (Y+) points down-left: (-COS30, SIN30) = (-0.866, 0.5)
+					     East (X+) points down-right: (COS30, SIN30) = (0.866, 0.5)
+					     South (Y-) points up-right: (COS30, -SIN30) = (0.866, -0.5)
+					     West (X-) points up-left: (-COS30, -SIN30) = (-0.866, -0.5)
+					-->
+
+					<!-- North arrow (down-left in isometric) -->
+					<line x1="0" y1="0" x2={-COS30 * 16} y2={SIN30 * 16} stroke="#dc2626" stroke-width="3" />
+					<polygon
+						points="{-COS30 * 20},{SIN30 * 20} {-COS30 * 13 - 2},{SIN30 * 13 - 2} {-COS30 * 13 + 2},{SIN30 * 13 + 2}"
+						fill="#dc2626"
+					/>
+					<text x={-COS30 * 26} y={SIN30 * 26 + 3} text-anchor="middle" font-size="9" fill="#dc2626" font-weight="bold">N</text>
+
+					<!-- East arrow (down-right in isometric) -->
+					<line x1="0" y1="0" x2={COS30 * 14} y2={SIN30 * 14} stroke="#374151" stroke-width="2" />
+					<text x={COS30 * 24} y={SIN30 * 24 + 3} text-anchor="middle" font-size="8" fill="#374151">E</text>
+
+					<!-- South arrow (up-right in isometric) -->
+					<line x1="0" y1="0" x2={COS30 * 12} y2={-SIN30 * 12} stroke="#9ca3af" stroke-width="1.5" />
+					<text x={COS30 * 22} y={-SIN30 * 22 + 3} text-anchor="middle" font-size="8" fill="#9ca3af">S</text>
+
+					<!-- West arrow (up-left in isometric) -->
+					<line x1="0" y1="0" x2={-COS30 * 12} y2={-SIN30 * 12} stroke="#9ca3af" stroke-width="1.5" />
+					<text x={-COS30 * 22} y={-SIN30 * 22 + 3} text-anchor="middle" font-size="8" fill="#9ca3af">W</text>
+				</g>
+
+				<!-- Center dot -->
+				<circle cx="0" cy="0" r="3" fill="#374151" />
 			</g>
 
 			<!-- Scale indicator -->
@@ -757,8 +873,20 @@
 		pointer-events: none;
 	}
 
-	.compass {
-		pointer-events: none;
+	.compass-widget {
+		cursor: default;
+	}
+
+	.compass-widget .rotate-btn {
+		cursor: pointer;
+	}
+
+	.compass-widget .rotate-btn:hover + .rotate-label {
+		fill: #374151;
+	}
+
+	.compass-widget .rotate-label {
+		transition: fill 0.15s ease;
 	}
 
 	.scale-bar {

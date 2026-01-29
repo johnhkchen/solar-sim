@@ -1,15 +1,15 @@
 /**
- * Shadow polygon calculation for visualization.
+ * Shadow polygon calculation for visualization using ray-tracing approach.
  *
- * This module computes the 2D shadow shapes cast by obstacles onto the ground
- * plane given the sun's position. Each obstacle type produces a characteristic
- * shadow shape: trees cast elliptical shadows, buildings cast quadrilateral
- * shadows, and fences cast narrow parallelograms.
+ * This module computes shadow shapes by projecting obstacle silhouettes onto
+ * the ground plane using sun ray intersection. Each point on an obstacle's
+ * outline is traced along the sun ray direction until it hits the ground,
+ * producing realistic shadow shapes that respect terrain slope.
  *
- * The shadow length depends on the sun's altitude: lower sun angles produce
- * longer shadows. The shadow direction is opposite the sun's azimuth. When
- * terrain slope is provided, shadows are distorted according to the tilted
- * ground plane intersection.
+ * Trees project their actual silhouette (trunk + cone-shaped canopy) rather
+ * than simple ellipses. Buildings and fences project their 3D outlines.
+ * When terrain is sloped, shadows correctly distort as rays intersect the
+ * tilted ground plane at different distances.
  */
 
 import type { SolarPosition } from './types.js';
@@ -24,6 +24,16 @@ import type { PlotSlope } from './slope.js';
 export interface Point {
 	x: number;
 	y: number;
+}
+
+/**
+ * A 3D point in world coordinates.
+ * X is positive east, Y is positive north, Z is up.
+ */
+interface Point3D {
+	x: number;
+	y: number;
+	z: number;
 }
 
 /**
@@ -52,6 +62,111 @@ export interface PlotObstacle extends Obstacle {
  */
 function toRadians(degrees: number): number {
 	return degrees * (Math.PI / 180);
+}
+
+/**
+ * Calculates the sun ray direction vector (unit vector pointing toward the sun).
+ * This is the direction light travels FROM, so shadows project in the opposite direction.
+ */
+function getSunRayDirection(sun: SolarPosition): Point3D {
+	const altRad = toRadians(sun.altitude);
+	const azRad = toRadians(sun.azimuth);
+
+	// Azimuth is compass bearing: 0=N, 90=E
+	// Horizontal components point toward the sun
+	const horizontal = Math.cos(altRad);
+	return {
+		x: horizontal * Math.sin(azRad), // East component
+		y: horizontal * Math.cos(azRad), // North component
+		z: Math.sin(altRad) // Up component
+	};
+}
+
+/**
+ * Projects a 3D point onto the ground plane by tracing a ray from the point
+ * in the direction opposite to the sun (shadow direction).
+ *
+ * For flat terrain (z=0), this is straightforward geometry.
+ * For sloped terrain, the ground plane is z = -tan(slope) * (x*sin(aspect) + y*cos(aspect)),
+ * and we solve for the intersection point.
+ *
+ * Returns the 2D ground intersection point, or null if the ray doesn't hit
+ * the ground (e.g., sun below horizon or point already below ground).
+ */
+function projectPointToGround(
+	point: Point3D,
+	sun: SolarPosition,
+	slope?: PlotSlope
+): Point | null {
+	if (sun.altitude <= 0) return null;
+
+	// Points at or below ground level project to themselves
+	if (point.z <= 0) {
+		return { x: point.x, y: point.y };
+	}
+
+	const sunDir = getSunRayDirection(sun);
+
+	// Shadow ray direction is opposite to sun direction
+	const rayDx = -sunDir.x;
+	const rayDy = -sunDir.y;
+	const rayDz = -sunDir.z;
+
+	// For flat ground (z = 0):
+	// point.z + t * rayDz = 0
+	// t = -point.z / rayDz
+	if (!slope || slope.angle < 0.5) {
+		if (rayDz >= 0) return null; // Ray going up, won't hit ground
+		const t = -point.z / rayDz;
+		if (t < 0) return null;
+		// Clamp shadow length to avoid extreme values near sunrise/sunset
+		const clampedT = Math.min(t, 100 / Math.abs(rayDz));
+		return {
+			x: point.x + clampedT * rayDx,
+			y: point.y + clampedT * rayDy
+		};
+	}
+
+	// For sloped ground: aspect is the direction the slope FACES (uphill direction)
+	// Ground is higher in the aspect direction, so: z = tan(slopeAngle) * (x*sin(aspect) + y*cos(aspect))
+	// Let's call this: z = a*x + b*y where:
+	//   a = tan(slopeAngle) * sin(aspect)
+	//   b = tan(slopeAngle) * cos(aspect)
+	//
+	// Ray: P(t) = point + t * ray
+	// Ground: z = a*x + b*y
+	//
+	// Substituting:
+	// point.z + t*rayDz = a*(point.x + t*rayDx) + b*(point.y + t*rayDy)
+	// point.z + t*rayDz = a*point.x + a*t*rayDx + b*point.y + b*t*rayDy
+	// point.z - a*point.x - b*point.y = t*(a*rayDx + b*rayDy - rayDz)
+	// t = (point.z - a*point.x - b*point.y) / (a*rayDx + b*rayDy - rayDz)
+
+	const slopeRad = toRadians(slope.angle);
+	const aspectRad = toRadians(slope.aspect);
+	const tanSlope = Math.tan(slopeRad);
+
+	const a = tanSlope * Math.sin(aspectRad);
+	const b = tanSlope * Math.cos(aspectRad);
+
+	const denominator = a * rayDx + b * rayDy - rayDz;
+	if (Math.abs(denominator) < 0.0001) {
+		// Ray nearly parallel to ground plane
+		return null;
+	}
+
+	const numerator = point.z - a * point.x - b * point.y;
+	const t = numerator / denominator;
+
+	if (t < 0) return null; // Intersection behind the point
+
+	// Clamp to reasonable distance
+	const clampedT = Math.min(t, 150);
+
+	return {
+		x: point.x + clampedT * rayDx,
+		y: point.y + clampedT * rayDy
+	};
 }
 
 /**
@@ -97,7 +212,7 @@ export function getShadowDirection(sunAzimuth: number): { dx: number; dy: number
  *
  * For small slopes (under 15°), this adjustment is minor and mostly cosmetic.
  * The math involves finding where the shadow ray intersects the tilted ground
- * plane z = -tan(slope) * (x*sin(aspect) + y*cos(aspect)).
+ * plane z = tan(slope) * (x*sin(aspect) + y*cos(aspect)).
  */
 export function adjustShadowLengthForSlope(
 	baseLength: number,
@@ -114,9 +229,9 @@ export function adjustShadowLengthForSlope(
 	const shadowDx = -Math.sin(azRad);
 	const shadowDy = -Math.cos(azRad);
 
-	// Downhill direction is toward the aspect bearing
-	const downhillDx = Math.sin(aspectRad);
-	const downhillDy = Math.cos(aspectRad);
+	// Downhill direction is OPPOSITE to aspect (aspect is the facing/uphill direction)
+	const downhillDx = -Math.sin(aspectRad);
+	const downhillDy = -Math.cos(aspectRad);
 
 	// Dot product: positive when shadow goes downhill, negative when uphill
 	const downhillAlignment = shadowDx * downhillDx + shadowDy * downhillDy;
@@ -135,16 +250,98 @@ export function adjustShadowLengthForSlope(
 }
 
 /**
- * Calculates the shadow polygon for a tree-like circular obstacle.
+ * Generates the 3D silhouette points of a tree as seen from the sun's direction.
  *
- * Trees cast elliptical shadows because the circular canopy projects at an
- * angle onto the ground. The ellipse's major axis aligns with the shadow
- * direction, and its length depends on the sun altitude. We approximate
- * the ellipse with a 16-sided polygon.
+ * The tree silhouette consists of:
+ * - Trunk: a vertical rectangle from ground to canopy base
+ * - Canopy: a cone/lollipop shape tapering toward the top
  *
- * The shadow calculation assumes the canopy is a sphere centered at a height
- * equal to the tree height minus the canopy radius. The trunk is ignored since
- * its shadow is typically hidden within the canopy's shadow.
+ * We generate points along the left and right edges of this silhouette,
+ * which will be projected onto the ground to form the shadow.
+ */
+function getTreeSilhouettePoints(obstacle: PlotObstacle, sun: SolarPosition): Point3D[] {
+	const canopyRadius = obstacle.width / 2;
+	const treeHeight = obstacle.height;
+	const trunkHeight = Math.max(0, treeHeight - canopyRadius * 2);
+	const trunkRadius = canopyRadius * 0.15; // Trunk is about 15% of canopy width
+
+	// Sun direction determines which side of the tree is the "left" and "right" silhouette
+	const azRad = toRadians(sun.azimuth);
+	// Perpendicular to sun direction (left side when facing sun)
+	const perpX = -Math.cos(azRad);
+	const perpY = Math.sin(azRad);
+
+	const points: Point3D[] = [];
+
+	// Start at ground level, left side of trunk
+	points.push({
+		x: obstacle.x + perpX * trunkRadius,
+		y: obstacle.y + perpY * trunkRadius,
+		z: 0
+	});
+
+	// Up the left side of trunk to canopy base
+	points.push({
+		x: obstacle.x + perpX * trunkRadius,
+		y: obstacle.y + perpY * trunkRadius,
+		z: trunkHeight
+	});
+
+	// Left side of canopy (cone shape - widest at bottom, narrow at top)
+	const canopySegments = 6;
+	for (let i = 0; i <= canopySegments; i++) {
+		const t = i / canopySegments; // 0 at bottom of canopy, 1 at top
+		const z = trunkHeight + t * (treeHeight - trunkHeight);
+		// Cone profile: radius decreases linearly from canopyRadius to ~10% at top
+		const radius = canopyRadius * (1 - t * 0.9);
+		points.push({
+			x: obstacle.x + perpX * radius,
+			y: obstacle.y + perpY * radius,
+			z
+		});
+	}
+
+	// Top of tree (apex)
+	points.push({
+		x: obstacle.x,
+		y: obstacle.y,
+		z: treeHeight
+	});
+
+	// Right side of canopy (going back down)
+	for (let i = canopySegments; i >= 0; i--) {
+		const t = i / canopySegments;
+		const z = trunkHeight + t * (treeHeight - trunkHeight);
+		const radius = canopyRadius * (1 - t * 0.9);
+		points.push({
+			x: obstacle.x - perpX * radius,
+			y: obstacle.y - perpY * radius,
+			z
+		});
+	}
+
+	// Right side of trunk down to ground
+	points.push({
+		x: obstacle.x - perpX * trunkRadius,
+		y: obstacle.y - perpY * trunkRadius,
+		z: trunkHeight
+	});
+
+	points.push({
+		x: obstacle.x - perpX * trunkRadius,
+		y: obstacle.y - perpY * trunkRadius,
+		z: 0
+	});
+
+	return points;
+}
+
+/**
+ * Calculates the shadow polygon for a tree using ray-traced silhouette projection.
+ *
+ * The tree's silhouette (as seen from the sun's direction) is projected onto
+ * the ground plane by tracing rays from each silhouette point. This produces
+ * realistic tree-shaped shadows rather than simple ellipses.
  */
 function calculateTreeShadow(
 	obstacle: PlotObstacle,
@@ -153,62 +350,59 @@ function calculateTreeShadow(
 ): ShadowPolygon | null {
 	if (sun.altitude <= 0) return null;
 
-	const canopyRadius = obstacle.width / 2;
-	// Canopy center is at the top of the tree minus the radius
-	const canopyHeight = Math.max(canopyRadius, obstacle.height - canopyRadius);
+	// Get 3D silhouette points
+	const silhouettePoints = getTreeSilhouettePoints(obstacle, sun);
 
-	const baseShadowLength = calculateShadowLength(canopyHeight, sun.altitude);
-	const shadowLength = adjustShadowLengthForSlope(baseShadowLength, sun.azimuth, slope);
-	const { dx, dy } = getShadowDirection(sun.azimuth);
-
-	// Generate ellipse vertices (16 segments for smooth curve)
+	// Project each point onto the ground
 	const vertices: Point[] = [];
-	const segments = 16;
-
-	for (let i = 0; i < segments; i++) {
-		const angle = (i / segments) * 2 * Math.PI;
-
-		// Local coordinates on the canopy circle
-		const localX = canopyRadius * Math.cos(angle);
-		const localY = canopyRadius * Math.sin(angle);
-
-		// The shadow of each canopy edge point extends different amounts
-		// Points "higher" in the sun's view have longer shadows
-		// We approximate this by adding a fraction of the radius to the shadow length
-		// for points on the sun-facing side
-		const sunwardOffset = localX * dx + localY * dy;
-		const pointShadowLength = shadowLength + sunwardOffset * 0.5;
-
-		// Transform to world coordinates: rotate local coords to align with shadow direction
-		// and offset by the shadow projection
-		const perpDx = -dy; // Perpendicular to shadow direction
-		const perpDy = dx;
-
-		vertices.push({
-			x: obstacle.x + localX * perpDx + localY * dx + pointShadowLength * dx,
-			y: obstacle.y + localX * perpDy + localY * dy + pointShadowLength * dy
-		});
+	for (const point3d of silhouettePoints) {
+		const groundPoint = projectPointToGround(point3d, sun, slope);
+		if (groundPoint) {
+			vertices.push(groundPoint);
+		}
 	}
+
+	// Need at least 3 points to form a polygon
+	if (vertices.length < 3) return null;
+
+	// Remove duplicate/very close points that can occur at ground level
+	const filteredVertices = removeDuplicatePoints(vertices);
+
+	if (filteredVertices.length < 3) return null;
 
 	const transparency = getTransparency(obstacle.type);
 	return {
 		obstacleId: obstacle.id,
 		obstacleType: obstacle.type,
-		vertices,
+		vertices: filteredVertices,
 		shadeIntensity: 1 - transparency
 	};
 }
 
 /**
- * Calculates the shadow polygon for a rectangular building.
+ * Removes duplicate or very close points from a vertex array.
+ */
+function removeDuplicatePoints(points: Point[], threshold = 0.01): Point[] {
+	if (points.length === 0) return [];
+
+	const result: Point[] = [points[0]];
+	for (let i = 1; i < points.length; i++) {
+		const prev = result[result.length - 1];
+		const curr = points[i];
+		const dist = Math.hypot(curr.x - prev.x, curr.y - prev.y);
+		if (dist > threshold) {
+			result.push(curr);
+		}
+	}
+	return result;
+}
+
+/**
+ * Calculates the shadow polygon for a rectangular building using ray tracing.
  *
- * Buildings cast quadrilateral shadows. The shadow extends from the building's
- * footprint along the shadow direction for a distance determined by the building
- * height and sun altitude.
- *
- * The building is treated as a rectangle with its long axis perpendicular to
- * the direction from the observation point. The shadow polygon connects the
- * two far corners of the building base to their shadow projections.
+ * Buildings are treated as extruded rectangles. We trace the outline of the
+ * building (base corners and top corners) to create a shadow polygon that
+ * properly intersects the ground plane.
  */
 function calculateBuildingShadow(
 	obstacle: PlotObstacle,
@@ -217,53 +411,123 @@ function calculateBuildingShadow(
 ): ShadowPolygon | null {
 	if (sun.altitude <= 0) return null;
 
-	const baseShadowLength = calculateShadowLength(obstacle.height, sun.altitude);
-	const shadowLength = adjustShadowLengthForSlope(baseShadowLength, sun.azimuth, slope);
-	const { dx, dy } = getShadowDirection(sun.azimuth);
+	const h = obstacle.height;
+	const halfWidth = obstacle.width / 2;
+	const depth = 3; // Buildings have some depth
 
 	// Building orientation: width runs perpendicular to the direction from origin
-	// The obstacle.direction gives the compass bearing from origin to obstacle center
 	const perpAngle = toRadians(obstacle.direction + 90);
-	const halfWidth = obstacle.width / 2;
+	const perpX = Math.sin(perpAngle);
+	const perpY = Math.cos(perpAngle);
 
-	// The two corners of the building base facing the shadow direction
-	const corner1: Point = {
-		x: obstacle.x + halfWidth * Math.sin(perpAngle),
-		y: obstacle.y + halfWidth * Math.cos(perpAngle)
-	};
-	const corner2: Point = {
-		x: obstacle.x - halfWidth * Math.sin(perpAngle),
-		y: obstacle.y - halfWidth * Math.cos(perpAngle)
-	};
+	// Direction toward origin (for depth)
+	const dirAngle = toRadians(obstacle.direction);
+	const dirX = Math.sin(dirAngle);
+	const dirY = Math.cos(dirAngle);
 
-	// Shadow tips extend from corners
-	const shadow1: Point = {
-		x: corner1.x + shadowLength * dx,
-		y: corner1.y + shadowLength * dy
-	};
-	const shadow2: Point = {
-		x: corner2.x + shadowLength * dx,
-		y: corner2.y + shadowLength * dy
-	};
+	// Four corners of the building footprint
+	const corners = [
+		{ x: obstacle.x - halfWidth * perpX - depth / 2 * dirX, y: obstacle.y - halfWidth * perpY - depth / 2 * dirY },
+		{ x: obstacle.x + halfWidth * perpX - depth / 2 * dirX, y: obstacle.y + halfWidth * perpY - depth / 2 * dirY },
+		{ x: obstacle.x + halfWidth * perpX + depth / 2 * dirX, y: obstacle.y + halfWidth * perpY + depth / 2 * dirY },
+		{ x: obstacle.x - halfWidth * perpX + depth / 2 * dirX, y: obstacle.y - halfWidth * perpY + depth / 2 * dirY }
+	];
 
-	// Quadrilateral: base corners and their shadow projections
+	// Create 3D points for all corners at ground level and rooftop
+	const points3D: Point3D[] = [];
+
+	// Ground level corners (the base of the shadow)
+	for (const c of corners) {
+		points3D.push({ x: c.x, y: c.y, z: 0 });
+	}
+
+	// Rooftop corners (these project to form the far edge of shadow)
+	for (const c of corners) {
+		points3D.push({ x: c.x, y: c.y, z: h });
+	}
+
+	// Project all points to ground
+	const projectedPoints: Array<Point & { z: number }> = [];
+	for (const p of points3D) {
+		const ground = projectPointToGround(p, sun, slope);
+		if (ground) {
+			projectedPoints.push({ ...ground, z: p.z });
+		}
+	}
+
+	// Build shadow polygon: start with base corners, then add roof projections
+	// The shadow shape depends on which edges are lit by the sun
+	const vertices: Point[] = [];
+
+	// Find which corners cast the longest shadows (determine shadow outline)
+	// Simple approach: use the convex hull of all projected points
+	const allPoints = projectedPoints.map(p => ({ x: p.x, y: p.y }));
+	const hull = convexHull(allPoints);
+
+	if (hull.length < 3) return null;
+
 	return {
 		obstacleId: obstacle.id,
 		obstacleType: obstacle.type,
-		vertices: [corner1, corner2, shadow2, shadow1],
+		vertices: hull,
 		shadeIntensity: 1.0 // Buildings are fully opaque
 	};
 }
 
 /**
- * Calculates the shadow polygon for a fence or hedge (linear obstacle).
+ * Computes the convex hull of a set of 2D points using Graham scan.
+ */
+function convexHull(points: Point[]): Point[] {
+	if (points.length < 3) return points;
+
+	// Find the bottom-most point (and leftmost if tie)
+	let start = 0;
+	for (let i = 1; i < points.length; i++) {
+		if (points[i].y < points[start].y ||
+		    (points[i].y === points[start].y && points[i].x < points[start].x)) {
+			start = i;
+		}
+	}
+
+	// Sort points by polar angle with respect to start point
+	const startPoint = points[start];
+	const sorted = points
+		.filter((_, i) => i !== start)
+		.map(p => ({
+			point: p,
+			angle: Math.atan2(p.y - startPoint.y, p.x - startPoint.x),
+			dist: Math.hypot(p.x - startPoint.x, p.y - startPoint.y)
+		}))
+		.sort((a, b) => a.angle - b.angle || a.dist - b.dist)
+		.map(p => p.point);
+
+	// Build hull
+	const hull: Point[] = [startPoint];
+
+	for (const p of sorted) {
+		// Remove points that make clockwise turns
+		while (hull.length > 1 && crossProduct(hull[hull.length - 2], hull[hull.length - 1], p) <= 0) {
+			hull.pop();
+		}
+		hull.push(p);
+	}
+
+	return hull;
+}
+
+/**
+ * Cross product of vectors (o->a) and (o->b).
+ * Positive = counter-clockwise, negative = clockwise, zero = collinear.
+ */
+function crossProduct(o: Point, a: Point, b: Point): number {
+	return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+}
+
+/**
+ * Calculates the shadow polygon for a fence or hedge using ray tracing.
  *
- * Fences cast narrow parallelogram shadows. The fence is treated as a line
- * segment of specified width, and the shadow extends from both ends along
- * the shadow direction.
- *
- * Hedges are similar but may have some transparency, which affects the
- * shade intensity.
+ * Fences are treated as thin vertical walls. We trace rays from the top
+ * edge corners to the ground to form the shadow polygon.
  */
 function calculateFenceShadow(
 	obstacle: PlotObstacle,
@@ -272,33 +536,33 @@ function calculateFenceShadow(
 ): ShadowPolygon | null {
 	if (sun.altitude <= 0) return null;
 
-	const baseShadowLength = calculateShadowLength(obstacle.height, sun.altitude);
-	const shadowLength = adjustShadowLengthForSlope(baseShadowLength, sun.azimuth, slope);
-	const { dx, dy } = getShadowDirection(sun.azimuth);
+	const h = obstacle.height;
+	const halfWidth = obstacle.width / 2;
 
 	// Fence orientation: runs perpendicular to the direction from origin
 	const perpAngle = toRadians(obstacle.direction + 90);
-	const halfWidth = obstacle.width / 2;
+	const perpX = Math.sin(perpAngle);
+	const perpY = Math.cos(perpAngle);
 
-	// Fence endpoints
+	// Fence endpoints at ground level
 	const end1: Point = {
-		x: obstacle.x + halfWidth * Math.sin(perpAngle),
-		y: obstacle.y + halfWidth * Math.cos(perpAngle)
+		x: obstacle.x + halfWidth * perpX,
+		y: obstacle.y + halfWidth * perpY
 	};
 	const end2: Point = {
-		x: obstacle.x - halfWidth * Math.sin(perpAngle),
-		y: obstacle.y - halfWidth * Math.cos(perpAngle)
+		x: obstacle.x - halfWidth * perpX,
+		y: obstacle.y - halfWidth * perpY
 	};
 
-	// Shadow extends from each endpoint
-	const shadow1: Point = {
-		x: end1.x + shadowLength * dx,
-		y: end1.y + shadowLength * dy
-	};
-	const shadow2: Point = {
-		x: end2.x + shadowLength * dx,
-		y: end2.y + shadowLength * dy
-	};
+	// Top of fence endpoints
+	const top1: Point3D = { x: end1.x, y: end1.y, z: h };
+	const top2: Point3D = { x: end2.x, y: end2.y, z: h };
+
+	// Project top corners onto ground
+	const shadow1 = projectPointToGround(top1, sun, slope);
+	const shadow2 = projectPointToGround(top2, sun, slope);
+
+	if (!shadow1 || !shadow2) return null;
 
 	const transparency = getTransparency(obstacle.type);
 	return {

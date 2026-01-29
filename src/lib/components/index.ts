@@ -3,6 +3,7 @@
 export { default as LocationInput } from './LocationInput.svelte';
 export { default as SunDataCard } from './SunDataCard.svelte';
 export { default as PlotEditor } from './PlotEditor.svelte';
+export { default as PlotViewer } from './PlotViewer.svelte';
 export { default as ShadeResults } from './ShadeResults.svelte';
 export { default as GrowingSeasonTimeline } from './GrowingSeasonTimeline.svelte';
 export { default as PlantRecommendations } from './PlantRecommendations.svelte';

@@ -47,86 +47,6 @@ milestones:
     status: complete
 stories: []
 nodes:
-  - id: T-018-01
-    title: Research enhanced climate data and map picker
-    story: S-018
-    description: See docs/active/tickets/T-018-01-climate-location-research.md for details.
-    priority: 1
-    complexity: M
-    status: complete
-    assignee: null
-    output: docs/knowledge/research/enhanced-climate.md
-    path: docs/active/tickets/T-018-01-climate-location-research.md
-  - id: T-018-02
-    title: Build Leaflet map picker component
-    story: S-018
-    description: Create `src/lib/components/MapPicker.svelte` that renders an interactive map where users can click to select a location, search with autocomplete, or use GPS.
-    priority: 1
-    complexity: M
-    status: complete
-    assignee: null
-    output: src/lib/components/MapPicker.svelte
-    path: docs/active/tickets/T-018-02-map-picker-component.md
-  - id: T-018-03
-    title: Implement Open-Meteo historical weather client
-    story: S-018
-    description: Create `src/lib/climate/openmeteo.ts` with functions to fetch historical daily temperature data and compute climate metrics from it.
-    priority: 1
-    complexity: M
-    status: complete
-    assignee: null
-    output: src/lib/climate/openmeteo.ts
-    path: docs/active/tickets/T-018-03-openmeteo-client.md
-  - id: T-018-04
-    title: Implement Köppen climate classification
-    story: S-018
-    description: Create `src/lib/climate/koppen.ts` with functions to determine Köppen climate type from monthly climate data.
-    priority: 1
-    complexity: M
-    status: complete
-    assignee: null
-    output: src/lib/climate/koppen.ts
-    path: docs/active/tickets/T-018-04-koppen-classification.md
-  - id: T-018-05
-    title: Add seasonal weather outlook and anomaly display
-    story: S-018
-    description: Long-term "zones are shifting" messaging is less actionable than knowing "this winter has been 10°F warmer than normal and the 3-month outlook shows continued above-normal temps." Gardeners establishing new plantings need to know about current anomalies and near-term patterns, not just historical averages.
-    priority: 1
-    complexity: M
-    status: complete
-    assignee: null
-    output: src/lib/climate/outlook.ts
-    path: docs/active/tickets/T-018-05-climate-trends.md
-  - id: T-018-06
-    title: Create monthly temperature chart component
-    story: S-018
-    description: Create `src/lib/components/TemperatureChart.svelte` that shows a year's worth of temperature patterns.
-    priority: 1
-    complexity: S
-    status: complete
-    assignee: null
-    output: src/lib/components/TemperatureChart.svelte
-    path: docs/active/tickets/T-018-06-temperature-chart.md
-  - id: T-018-07
-    title: Update LocationInput to use map picker
-    story: S-018
-    description: Update `src/lib/components/LocationInput.svelte` to use MapPicker as the default input method, while keeping the existing search and coordinates modes as alternatives.
-    priority: 1
-    complexity: M
-    status: complete
-    assignee: null
-    output: src/lib/components/LocationInput.svelte
-    path: docs/active/tickets/T-018-07-location-input-update.md
-  - id: T-018-08
-    title: Update results page with enhanced climate display
-    story: S-018
-    description: Update `src/routes/results/+page.svelte` to display Köppen classification, monthly temperatures, and climate trends alongside existing climate data.
-    priority: 1
-    complexity: M
-    status: complete
-    assignee: null
-    output: src/routes/results/+page.svelte
-    path: docs/active/tickets/T-018-08-climate-display-update.md
   - id: T-019-01
     title: Research full app integration approach
     story: S-019
@@ -156,7 +76,7 @@ nodes:
     description: Research at `docs/knowledge/research/app-integration.md` identified the integration point and data flow. PlotViewer should appear between the sun data card (line 124) and climate data section (line 126) in `src/routes/results/+page.svelte`.
     priority: 1
     complexity: M
-    status: ready
+    status: complete
     assignee: null
     output: src/routes/results/+page.svelte
     path: docs/active/tickets/T-019-02-plotviewer-integration.md
@@ -166,7 +86,7 @@ nodes:
     description: Research at `docs/knowledge/research/app-integration.md` section R3 documents the shade calculation API. The key function is `getDailySunHoursWithShade()` at `sun-hours-shade.ts:54-108`.
     priority: 1
     complexity: M
-    status: pending
+    status: complete
     assignee: null
     output: src/routes/results/+page.svelte
     path: docs/active/tickets/T-019-03-shade-adjusted-recommendations.md
@@ -176,7 +96,7 @@ nodes:
     description: Research at `docs/knowledge/research/app-integration.md` section R3 documents `getSeasonalSummaryWithShade()` at `sun-hours-shade.ts:261-332` for calculating shade impact across date ranges.
     priority: 1
     complexity: M
-    status: pending
+    status: complete
     assignee: null
     output: src/routes/results/+page.svelte
     path: docs/active/tickets/T-019-04-monthly-shade-calculation.md
@@ -186,7 +106,7 @@ nodes:
     description: Research at `docs/knowledge/research/app-integration.md` section R4 documents the persistence strategy with key format and Svelte 5 patterns.
     priority: 1
     complexity: S
-    status: pending
+    status: complete
     assignee: null
     output: src/routes/results/+page.svelte
     path: docs/active/tickets/T-019-05-localstorage-persistence.md
@@ -196,7 +116,7 @@ nodes:
     description: Research at `docs/knowledge/research/app-integration.md` section R5 documents that PlotViewer has a 600px minimum height which consumes the entire viewport on phones. The recommended approach is a collapsed state that expands on tap.
     priority: 1
     complexity: M
-    status: pending
+    status: complete
     assignee: null
     output: src/lib/components/PlotViewer.svelte
     path: docs/active/tickets/T-019-06-mobile-layout.md
@@ -206,29 +126,11 @@ nodes:
     description: Research at `docs/knowledge/research/app-integration.md` section R6 identified gaps in test coverage. Existing tests cover shade calculations and recommendations separately but not the integrated flow.
     priority: 1
     complexity: M
-    status: pending
+    status: complete
     assignee: null
     output: src/lib/integration/results-integration.test.ts
     path: docs/active/tickets/T-019-07-integration-testing.md
 edges:
-  - from: T-018-01
-    to: T-018-02
-  - from: T-018-01
-    to: T-018-03
-  - from: T-018-03
-    to: T-018-04
-  - from: T-018-01
-    to: T-018-05
-  - from: T-018-03
-    to: T-018-06
-  - from: T-018-02
-    to: T-018-07
-  - from: T-018-04
-    to: T-018-08
-  - from: T-018-05
-    to: T-018-08
-  - from: T-018-06
-    to: T-018-08
   - from: T-019-01
     to: T-019-02
   - from: T-019-02
@@ -247,13 +149,13 @@ edges:
     to: T-019-07
 meta:
   total_stories: 0
-  total_tasks: 15
+  total_tasks: 7
   total_milestones: 11
   by_status:
-    ready: 1
-    pending: 5
+    ready: 0
+    pending: 0
     in_progress: 0
-    complete: 9
+    complete: 7
     blocked: 0
   by_priority: {}
   by_milestone: {}

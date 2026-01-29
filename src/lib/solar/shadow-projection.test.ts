@@ -142,12 +142,14 @@ describe('calculateShadowPolygon', () => {
 	});
 
 	describe('building shadows', () => {
-		it('produces a quadrilateral for buildings', () => {
+		it('produces a polygon for buildings (convex hull of projected corners)', () => {
 			const obstacle = makeObstacle({ type: 'building' });
 			const shadow = calculateShadowPolygon(obstacle, makeSun(45, 180));
 
 			expect(shadow).not.toBeNull();
-			expect(shadow!.vertices).toHaveLength(4);
+			// Convex hull of 8 points (4 base + 4 roof) typically produces 4-8 vertices
+			expect(shadow!.vertices.length).toBeGreaterThanOrEqual(4);
+			expect(shadow!.vertices.length).toBeLessThanOrEqual(8);
 			expect(shadow!.obstacleType).toBe('building');
 			expect(shadow!.shadeIntensity).toBe(1.0);
 		});
@@ -157,10 +159,10 @@ describe('calculateShadowPolygon', () => {
 			const shadow = calculateShadowPolygon(obstacle, makeSun(45, 180));
 
 			expect(shadow).not.toBeNull();
-			// Shadow tips should be north of the building base
-			const maxBaseY = Math.max(...shadow!.vertices.slice(0, 2).map((v) => v.y));
-			const minShadowY = Math.min(...shadow!.vertices.slice(2).map((v) => v.y));
-			expect(minShadowY).toBeGreaterThan(maxBaseY - 1);
+			// Shadow should extend north of the building center
+			const bounds = getShadowBounds(shadow!);
+			// Building is at y=10, shadow should extend north (positive Y)
+			expect(bounds.maxY).toBeGreaterThan(obstacle.y);
 		});
 	});
 
@@ -433,5 +435,95 @@ describe('shadow geometry verification', () => {
 
 		// Should be longer than wide (ellipse stretched along shadow direction)
 		expect(lengthExtent).toBeGreaterThan(widthExtent);
+	});
+});
+
+describe('time-based shadow changes', () => {
+	it('shadows change direction when sun azimuth changes', () => {
+		const obstacle = makeObstacle({
+			type: 'building',
+			x: 0,
+			y: 0,
+			height: 10,
+			width: 5
+		});
+
+		// Morning sun (east, azimuth ~90°) casts shadows westward
+		const morningShadow = calculateShadowPolygon(obstacle, makeSun(30, 90));
+		// Evening sun (west, azimuth ~270°) casts shadows eastward
+		const eveningShadow = calculateShadowPolygon(obstacle, makeSun(30, 270));
+
+		expect(morningShadow).not.toBeNull();
+		expect(eveningShadow).not.toBeNull();
+
+		const morningBounds = getShadowBounds(morningShadow!);
+		const eveningBounds = getShadowBounds(eveningShadow!);
+
+		// Morning shadow should extend west (negative X)
+		expect(morningBounds.minX).toBeLessThan(0);
+		// Evening shadow should extend east (positive X)
+		expect(eveningBounds.maxX).toBeGreaterThan(0);
+
+		// The shadows should point in opposite directions
+		const morningCenterX = (morningBounds.minX + morningBounds.maxX) / 2;
+		const eveningCenterX = (eveningBounds.minX + eveningBounds.maxX) / 2;
+		expect(morningCenterX).toBeLessThan(eveningCenterX);
+	});
+
+	it('shadows change length when sun altitude changes', () => {
+		const obstacle = makeObstacle({
+			type: 'building',
+			x: 0,
+			y: 0,
+			height: 10,
+			width: 5
+		});
+
+		// Low sun (20°) casts longer shadows
+		const lowSunShadow = calculateShadowPolygon(obstacle, makeSun(20, 180));
+		// High sun (60°) casts shorter shadows
+		const highSunShadow = calculateShadowPolygon(obstacle, makeSun(60, 180));
+
+		expect(lowSunShadow).not.toBeNull();
+		expect(highSunShadow).not.toBeNull();
+
+		const lowSunBounds = getShadowBounds(lowSunShadow!);
+		const highSunBounds = getShadowBounds(highSunShadow!);
+
+		// Low sun shadow should be longer (extend further north)
+		const lowSunExtent = lowSunBounds.maxY - lowSunBounds.minY;
+		const highSunExtent = highSunBounds.maxY - highSunBounds.minY;
+		expect(lowSunExtent).toBeGreaterThan(highSunExtent);
+	});
+
+	it('all shadows update together when time changes', () => {
+		const obstacles = [
+			makeObstacle({ id: 'building', type: 'building', x: -5, y: 0, height: 8 }),
+			makeObstacle({ id: 'tree', type: 'deciduous-tree', x: 5, y: 0, height: 12 })
+		];
+
+		const morningPosition = makeSun(25, 100);
+		const afternoonPosition = makeSun(45, 200);
+
+		const morningShadows = calculateAllShadows(obstacles, morningPosition);
+		const afternoonShadows = calculateAllShadows(obstacles, afternoonPosition);
+
+		expect(morningShadows).toHaveLength(2);
+		expect(afternoonShadows).toHaveLength(2);
+
+		// Both shadows should have different positions
+		const morningBuilding = morningShadows.find((s) => s.obstacleId === 'building');
+		const afternoonBuilding = afternoonShadows.find((s) => s.obstacleId === 'building');
+
+		expect(morningBuilding).toBeDefined();
+		expect(afternoonBuilding).toBeDefined();
+
+		const morningBounds = getShadowBounds(morningBuilding!);
+		const afternoonBounds = getShadowBounds(afternoonBuilding!);
+
+		// Shadows should be in different positions (different center points)
+		const morningCenterY = (morningBounds.minY + morningBounds.maxY) / 2;
+		const afternoonCenterY = (afternoonBounds.minY + afternoonBounds.maxY) / 2;
+		expect(Math.abs(morningCenterY - afternoonCenterY)).toBeGreaterThan(0.1);
 	});
 });

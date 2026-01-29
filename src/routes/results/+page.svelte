@@ -1,9 +1,12 @@
 <script lang="ts">
 	import {
 		getDailySunHours,
+		getDailySunHoursWithShade,
 		getYearlySummary,
+		getSeasonalSummaryWithShade,
 		type Coordinates,
-		type DailySunData
+		type DailySunData,
+		type Obstacle
 	} from '$lib/solar';
 	import {
 		SunDataCard,
@@ -12,8 +15,11 @@
 		PlantingCalendar,
 		SeasonalLightChart,
 		TemperatureChart,
-		type MonthlySunData
+		PlotViewer,
+		type MonthlySunData,
+		type PlotObstacle
 	} from '$lib/components';
+	import type { PlotSlope } from '$lib/solar/slope';
 	import {
 		getFrostDates,
 		getHardinessZone,
@@ -52,6 +58,79 @@
 	// Fetch climate data for the location (fallback to embedded tables)
 	const frostDates: FrostDates = $derived(getFrostDates(coords));
 	const hardinessZone: HardinessZone = $derived(getHardinessZone(coords));
+
+	// Plot viewer state for obstacles and slope
+	let obstacles = $state<PlotObstacle[]>([]);
+	let slope = $state<PlotSlope>({ angle: 0, aspect: 180 });
+
+	// LocalStorage persistence for plot data. The isLoaded flag prevents the save
+	// effect from triggering during initial load, which would overwrite stored data
+	// with empty defaults before the load completes.
+	let isLoaded = $state(false);
+	let saveTimeout: ReturnType<typeof setTimeout> | null = null;
+
+	// Generate localStorage key using rounded coordinates (2 decimal places gives
+	// approximately 1km precision, grouping nearby locations together)
+	function getStorageKey(): string {
+		return `solar-sim:plot:${latitude.toFixed(2)}:${longitude.toFixed(2)}`;
+	}
+
+	// Load saved plot data on mount
+	$effect(() => {
+		if (typeof window === 'undefined') return;
+		const key = getStorageKey();
+		const stored = localStorage.getItem(key);
+		if (stored) {
+			try {
+				const data = JSON.parse(stored) as {
+					obstacles: PlotObstacle[];
+					slope: PlotSlope;
+					savedAt: string;
+				};
+				obstacles = data.obstacles ?? [];
+				slope = data.slope ?? { angle: 0, aspect: 180 };
+			} catch {
+				// Invalid JSON in storage, start fresh
+			}
+		}
+		isLoaded = true;
+	});
+
+	// Save plot data on changes with 500ms debounce to batch rapid drag updates
+	$effect(() => {
+		if (!isLoaded) return;
+
+		// Capture current values for the debounced save
+		const toSave = {
+			obstacles,
+			slope,
+			savedAt: new Date().toISOString()
+		};
+
+		if (saveTimeout) clearTimeout(saveTimeout);
+		saveTimeout = setTimeout(() => {
+			if (typeof window === 'undefined') return;
+			const key = getStorageKey();
+			localStorage.setItem(key, JSON.stringify(toSave));
+		}, 500);
+	});
+
+	// Calculate shade-adjusted sun hours when obstacles are present. The derived
+	// value recomputes whenever obstacles change, giving users immediate feedback
+	// on how their garden layout affects available sunlight.
+	const shadeAdjustedSunData = $derived.by(() => {
+		if (obstacles.length === 0) {
+			return null;
+		}
+		// PlotObstacle extends Obstacle so we can pass it directly
+		return getDailySunHoursWithShade(coords, new Date(), obstacles as Obstacle[]);
+	});
+
+	// Effective sun hours uses shade-adjusted value when obstacles exist,
+	// otherwise falls back to theoretical sun hours
+	const effectiveSunHours = $derived(
+		shadeAdjustedSunData?.effectiveHours ?? sunData.sunHours
+	);
 
 	// Enhanced climate data state (async)
 	let enhancedClimateLoading = $state(true);
@@ -149,20 +228,54 @@
 		fetchedAt: new Date()
 	});
 
-	// Calculate monthly sun hours for the seasonal light chart
+	// Calculate monthly sun hours for the seasonal light chart. When obstacles
+	// are present, this computes shade-adjusted effective hours for each month
+	// using getSeasonalSummaryWithShade, giving users insight into how their
+	// garden's light conditions vary seasonally with their specific obstacles.
 	const monthlyData: MonthlySunData[] = $derived.by(() => {
 		const year = new Date().getFullYear();
 		const yearSummaries = getYearlySummary(coords, year);
-		return yearSummaries.map((summary, index) => ({
-			month: index + 1,
-			theoreticalHours: summary.averageSunHours,
-			effectiveHours: summary.averageSunHours
-		}));
+
+		return yearSummaries.map((summary, index) => {
+			const month = index + 1;
+			const theoreticalHours = summary.averageSunHours;
+
+			// When no obstacles exist, effective hours match theoretical
+			if (obstacles.length === 0) {
+				return {
+					month,
+					theoreticalHours,
+					effectiveHours: theoreticalHours
+				};
+			}
+
+			// Calculate shade-adjusted effective hours for this month
+			const startDate = new Date(year, index, 1);
+			const endDate = new Date(year, index + 1, 0); // Last day of month
+			const shadeAnalysis = getSeasonalSummaryWithShade(
+				coords,
+				startDate,
+				endDate,
+				obstacles as Obstacle[]
+			);
+
+			return {
+				month,
+				theoreticalHours,
+				effectiveHours: shadeAnalysis.averageEffectiveHours
+			};
+		});
 	});
 
-	// Generate plant recommendations based on sun hours and climate
+	// Generate plant recommendations based on effective sun hours and climate.
+	// When obstacles are present, effectiveSunHours reflects shade-adjusted values,
+	// producing recommendations tailored to the user's actual garden conditions.
 	const recommendations = $derived.by(() => {
-		const input = createRecommendationInput(sunData.sunHours, climateData);
+		const input = createRecommendationInput(
+			effectiveSunHours,
+			climateData,
+			sunData.sunHours // theoretical hours for comparison
+		);
 		return getRecommendations(input);
 	});
 
@@ -197,6 +310,22 @@
 
 	<section class="sun-data">
 		<SunDataCard data={sunData} {timezone} />
+	</section>
+
+	<section class="plot-section">
+		<h2>Your Garden Plot</h2>
+		<p class="plot-description">
+			Place obstacles like buildings, trees, and fences to see how shadows affect your garden throughout the day. The 3D view shows shadow patterns at any time you choose.
+		</p>
+		<div class="plot-viewer-container">
+			<PlotViewer
+				{latitude}
+				{longitude}
+				date={new Date()}
+				bind:obstacles
+				bind:slope
+			/>
+		</div>
 	</section>
 
 	<section class="climate-data">
@@ -346,7 +475,7 @@
 			</div>
 
 			<div class="recommendations-sidebar">
-				<SeasonalLightChart {monthlyData} hasShadeData={false} />
+				<SeasonalLightChart {monthlyData} hasShadeData={obstacles.length > 0} />
 			</div>
 		</div>
 
@@ -396,6 +525,35 @@
 
 	.sun-data {
 		margin-top: 1.5rem;
+	}
+
+	.plot-section {
+		margin-top: 2rem;
+	}
+
+	.plot-description {
+		margin: 0.5rem 0 1rem;
+		font-size: 0.875rem;
+		color: #6b7280;
+		line-height: 1.5;
+	}
+
+	.plot-viewer-container {
+		background: #fafaf9;
+		border: 1px solid #e7e5e4;
+		border-radius: 8px;
+		padding: 1rem;
+		min-height: 650px;
+	}
+
+	/* Mobile: remove container min-height since PlotViewer shows collapsed view */
+	@media (max-width: 600px) {
+		.plot-viewer-container {
+			min-height: auto;
+			background: transparent;
+			border: none;
+			padding: 0;
+		}
 	}
 
 	.climate-data {

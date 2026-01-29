@@ -78,7 +78,7 @@
 		return new Date(start + fraction * (end - start));
 	}
 
-	// Current slider value
+	// Current slider value - will be set properly in the initialization effect
 	let sliderValue = $state(500);
 
 	// Format time for display
@@ -199,16 +199,19 @@
 	}
 
 	// Initialize to solar noon when props change
+	// We need to read the prop values directly to track them properly in Svelte 5
 	$effect(() => {
-		// Reset to solar noon when date or location changes
-		const _date = date;
-		const _lat = latitude;
-		const _lon = longitude;
+		// Track these by reading them - Svelte 5 tracks what you read, not what you assign
+		void date.getTime();
+		void latitude;
+		void longitude;
 
-		currentTime = sunTimes.solarNoon;
-		sliderValue = timeToSliderValue(currentTime);
+		// Reset to solar noon when date or location changes
+		const noon = sunTimes.solarNoon;
+		currentTime = noon;
+		sliderValue = timeToSliderValue(noon);
 		lastUpdateTime = 0;
-		emitTimeChange(currentTime);
+		emitTimeChange(noon);
 	});
 
 	// Cleanup animation on unmount
@@ -279,7 +282,7 @@
 				class="time-slider"
 				min="0"
 				max={SLIDER_MAX}
-				bind:value={sliderValue}
+				value={sliderValue}
 				oninput={handleSliderInput}
 				onchange={handleSliderChange}
 				aria-label="Time of day"
