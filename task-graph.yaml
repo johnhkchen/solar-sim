@@ -47,122 +47,103 @@ milestones:
     status: complete
 stories: []
 nodes:
-  - id: T-016-01
-    title: Research plant recommendations approach
-    story: S-016
-    description: See docs/active/tickets/T-016-01-recommendations-research.md for details.
+  - id: T-017-01
+    title: Research slope modeling and isometric rendering
+    story: S-017
+    description: See docs/active/tickets/T-017-01-slope-isometric-research.md for details.
     priority: 1
     complexity: M
     status: complete
     assignee: null
-    output: docs/knowledge/research/plant-recommendations.md
-    path: docs/active/tickets/T-016-01-recommendations-research.md
-    completed_at: "2026-01-29T16:30:00.000Z"
-  - id: T-016-02
-    title: Add plant data types and interfaces
-    story: S-016
-    description: Create `src/lib/plants/types.ts` with interfaces for plant data, light requirements, and recommendation results. Also create `src/lib/plants/index.ts` to export the module.
+    output: docs/knowledge/research/slope-isometric.md
+    path: docs/active/tickets/T-017-01-slope-isometric-research.md
+    completed_at: "2026-01-29T19:45:00.000Z"
+  - id: T-017-02
+    title: Add slope data types and calculations
+    story: S-017
+    description: Create `src/lib/solar/slope.ts` with types for representing plot slope and functions for calculating effective sun angles on sloped terrain.
     priority: 1
     complexity: S
-    status: complete
+    status: ready
     assignee: null
-    output: src/lib/plants/types.ts
-    path: docs/active/tickets/T-016-02-plant-types.md
-    completed_at: "2026-01-29T17:00:00.000Z"
-  - id: T-016-03
-    title: Create plant database
-    story: S-016
-    description: Create `src/lib/plants/database.ts` containing a hardcoded array of 20-30 common vegetables, herbs, and flowers with their light requirements, days to maturity, and temperature tolerance.
+    output: src/lib/solar/slope.ts
+    path: docs/active/tickets/T-017-02-slope-types.md
+  - id: T-017-03
+    title: Implement shadow polygon calculation
+    story: S-017
+    description: Create `src/lib/solar/shadow-projection.ts` with functions to compute shadow polygons for each obstacle type given sun position and terrain slope.
     priority: 1
     complexity: M
-    status: complete
+    status: pending
     assignee: null
-    output: src/lib/plants/database.ts
-    path: docs/active/tickets/T-016-03-plant-database.md
-    completed_at: "2026-01-29T17:30:00.000Z"
-  - id: T-016-04
-    title: Implement recommendation engine
-    story: S-016
-    description: Create `src/lib/plants/recommendations.ts` with a function that takes effective sun hours (from shade analysis) and climate data (from S-015) and returns plant recommendations.
+    output: src/lib/solar/shadow-projection.ts
+    path: docs/active/tickets/T-017-03-shadow-polygons.md
+  - id: T-017-04
+    title: Add slope input to PlotEditor
+    story: S-017
+    description: Extend PlotEditor.svelte to include slope angle and direction inputs. Show a visual indicator of slope in the plan view.
+    priority: 1
+    complexity: S
+    status: pending
+    assignee: null
+    output: src/lib/components/PlotEditor.svelte
+    path: docs/active/tickets/T-017-04-slope-input-ui.md
+  - id: T-017-05
+    title: Build isometric view component
+    story: S-017
+    description: Create `src/lib/components/IsometricView.svelte` that renders the same plot data as PlotEditor but in an isometric projection showing the pseudo-3D scene.
+    priority: 1
+    complexity: L
+    status: pending
+    assignee: null
+    output: src/lib/components/IsometricView.svelte
+    path: docs/active/tickets/T-017-05-isometric-view.md
+  - id: T-017-06
+    title: Add time scrubber for shadow animation
+    story: S-017
+    description: Create `src/lib/components/TimeScrubber.svelte` that controls the time used for shadow calculations and integrates with the isometric view.
     priority: 1
     complexity: M
-    status: complete
+    status: pending
     assignee: null
-    output: src/lib/plants/recommendations.ts
-    path: docs/active/tickets/T-016-04-recommendation-engine.md
-    completed_at: "2026-01-29T18:33:00.000Z"
-  - id: T-016-05
-    title: Create recommendations UI component
-    story: S-016
-    description: Create `src/lib/components/PlantRecommendations.svelte` that takes recommendation data and displays it in a user-friendly format.
+    output: src/lib/components/TimeScrubber.svelte
+    path: docs/active/tickets/T-017-06-time-scrubber.md
+  - id: T-017-07
+    title: Add view toggle and integrate components
+    story: S-017
+    description: Create `src/lib/components/PlotViewer.svelte` that wraps PlotEditor and IsometricView with a toggle between them, plus shared time controls for shadow visualization.
     priority: 1
     complexity: M
-    status: complete
+    status: pending
     assignee: null
-    output: src/lib/components/PlantRecommendations.svelte
-    path: docs/active/tickets/T-016-05-recommendations-component.md
-    completed_at: "2026-01-29T19:00:00.000Z"
-  - id: T-016-06
-    title: Create planting calendar component
-    story: S-016
-    description: Create `src/lib/components/PlantingCalendar.svelte` that displays key gardening dates in a timeline format.
-    priority: 1
-    complexity: M
-    status: complete
-    assignee: null
-    output: src/lib/components/PlantingCalendar.svelte
-    path: docs/active/tickets/T-016-06-planting-calendar.md
-    completed_at: "2026-01-29T19:35:00.000Z"
-  - id: T-016-07
-    title: Create seasonal light chart
-    story: S-016
-    description: Create `src/lib/components/SeasonalLightChart.svelte` that displays how effective sun hours vary across the year.
-    priority: 1
-    complexity: M
-    status: complete
-    assignee: null
-    output: src/lib/components/SeasonalLightChart.svelte
-    path: docs/active/tickets/T-016-07-seasonal-light-chart.md
-    completed_at: "2026-01-29T20:00:00.000Z"
-  - id: T-016-08
-    title: Integrate recommendations into results page
-    story: S-016
-    description: Update `src/routes/results/+page.svelte` to include the PlantRecommendations, PlantingCalendar, and SeasonalLightChart components.
-    priority: 1
-    complexity: M
-    status: complete
-    assignee: null
-    output: src/routes/results/+page.svelte
-    path: docs/active/tickets/T-016-08-results-integration.md
-    completed_at: "2026-01-29T20:30:00.000Z"
+    output: src/lib/components/PlotViewer.svelte
+    path: docs/active/tickets/T-017-07-view-toggle-integration.md
 edges:
-  - from: T-016-01
-    to: T-016-02
-  - from: T-016-02
-    to: T-016-03
-  - from: T-016-03
-    to: T-016-04
-  - from: T-016-04
-    to: T-016-05
-  - from: T-016-04
-    to: T-016-06
-  - from: T-016-04
-    to: T-016-07
-  - from: T-016-05
-    to: T-016-08
-  - from: T-016-06
-    to: T-016-08
-  - from: T-016-07
-    to: T-016-08
+  - from: T-017-01
+    to: T-017-02
+  - from: T-017-02
+    to: T-017-03
+  - from: T-017-02
+    to: T-017-04
+  - from: T-017-03
+    to: T-017-05
+  - from: T-017-04
+    to: T-017-05
+  - from: T-017-05
+    to: T-017-06
+  - from: T-017-05
+    to: T-017-07
+  - from: T-017-06
+    to: T-017-07
 meta:
   total_stories: 0
-  total_tasks: 8
+  total_tasks: 7
   total_milestones: 11
   by_status:
-    ready: 0
-    pending: 0
+    ready: 1
+    pending: 5
     in_progress: 0
-    complete: 8
+    complete: 1
     blocked: 0
   by_priority: {}
   by_milestone: {}
