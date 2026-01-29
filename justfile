@@ -68,9 +68,9 @@ ralph-logs:
         echo "No log file found. Start the loop with 'just ralph' first."
     fi
 
-# Generate a prompt for the next available task from the DAG
-prompt:
-    @node --experimental-strip-types tools/prompt.ts
+# Preview the next available task (read-only, does not claim)
+prompt *args:
+    @node --experimental-strip-types tools/prompt.ts {{args}}
 
 # Show current DAG status
 dag-status:
@@ -84,13 +84,32 @@ dag-refresh:
 # TASK LIFECYCLE COMMANDS
 # ============================================================================
 
-# Mark a task as complete
-task-complete id:
-    node --experimental-strip-types tools/dag.ts task-complete {{id}}
+# Mark a task as complete (runs completion guards)
+task-complete id *args:
+    node --experimental-strip-types tools/dag.ts task-complete {{id}} {{args}}
 
 # Reset a task to ready (for recovery from failures)
 task-reset id:
     node --experimental-strip-types tools/dag.ts task-reset {{id}}
+
+# Show currently claimed task
+prompt-current:
+    @node --experimental-strip-types tools/prompt.ts --current
+
+# View task audit log (last 20 entries)
+task-audit:
+    #!/usr/bin/env bash
+    if [ -f logs/task-audit.jsonl ]; then
+        if command -v jq >/dev/null 2>&1; then
+            echo "Task Audit Log (last 20 entries):"
+            echo "================================="
+            tail -20 logs/task-audit.jsonl | jq -r '"[\(.timestamp)] \(.event): \(.task_id // "n/a") (\(.old_status // "?") -> \(.new_status // "?"))"'
+        else
+            tail -20 logs/task-audit.jsonl
+        fi
+    else
+        echo "No audit log found. Task state changes will be logged to logs/task-audit.jsonl"
+    fi
 
 # ============================================================================
 # WORKTREE COMMANDS

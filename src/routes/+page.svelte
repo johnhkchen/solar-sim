@@ -1,6 +1,17 @@
 <script lang="ts">
-	// Home page - location input
-	// This will be the main entry point where users specify their location
+	import { goto } from '$app/navigation';
+	import { LocationInput, type Location } from '$lib/components';
+
+	function handleLocationSelect(location: Location): void {
+		const params = new URLSearchParams();
+		params.set('lat', location.latitude.toString());
+		params.set('lon', location.longitude.toString());
+		params.set('tz', location.timezone);
+		if (location.name) {
+			params.set('name', location.name);
+		}
+		goto(`/results?${params.toString()}`);
+	}
 </script>
 
 <main>
@@ -9,7 +20,7 @@
 
 	<section>
 		<h2>Enter Location</h2>
-		<p>Location input form coming soon.</p>
+		<LocationInput onselect={handleLocationSelect} />
 	</section>
 </main>
 
@@ -23,5 +34,15 @@
 
 	h1 {
 		color: #333;
+	}
+
+	section {
+		margin-top: 1.5rem;
+	}
+
+	h2 {
+		color: #555;
+		font-size: 1.25rem;
+		margin-bottom: 1rem;
 	}
 </style>

@@ -1,648 +1,168 @@
 version: "1.0"
-last_updated: "2026-01-28"
+last_updated: "2026-01-29"
 milestones:
   - id: M1
     title: DAG Introspection
     description: just dag-status shows real data from task-graph.yaml
     status: complete
-    tasks:
-      - S-002-I
   - id: M2
     title: Frontmatter Scanning
     description: just dag-refresh reads and validates document frontmatter
     status: complete
-    tasks:
-      - S-002-I
-    depends_on:
-      - M1
   - id: M3
     title: Basic Prompt Generation
     description: just prompt selects task and outputs usable prompt
     status: complete
-    tasks:
-      - S-002-I
-    depends_on:
-      - M2
   - id: M4
     title: Task Lifecycle
     description: Task claiming, completion, and recovery mechanisms
     status: complete
-    tasks:
-      - S-002-I
-    depends_on:
-      - M3
   - id: M5
     title: Worktree Commands
     description: just worktree-* commands for parallel development
     status: complete
-    tasks:
-      - S-003-I
-    depends_on: []
   - id: M6
     title: Ralph Loop
-    description: just ralph runs autonomous agent loop (stretch goal)
+    description: just ralph runs autonomous agent loop
     status: complete
-    tasks:
-      - S-001-I
-    depends_on:
-      - M4
   - id: M7
     title: Solar Engine
     description: Core sun position and sun hours calculations
     status: complete
-    tasks:
-      - S-005-I
-    depends_on: []
   - id: M8
     title: Location System
     description: Geocoding, coordinate handling, and location UI
-    status: pending
-    tasks:
-      - S-006-I
-    depends_on: []
-stories:
-  - id: S-001
-    title: Ralph Loop Integration
     status: complete
-    priority: 1
-    milestone: M6
-    path: docs/archive/phase-1-foundation/stories/S-001-ralph-loop.md
-  - id: S-002
-    title: DAG Parsing and Prompt Generation
+  - id: M9
+    title: Application Integration
+    description: Results page displaying sun data for a location
     status: complete
-    priority: 1
-    milestones:
-      - M1
-      - M2
-      - M3
-      - M4
-    path: docs/archive/phase-1-foundation/stories/S-002-dag-parsing.md
-  - id: S-003
-    title: Git Worktree Workflow
+  - id: M10
+    title: Shade Modeling
+    description: Calculate effective sun hours accounting for obstacles
     status: complete
-    priority: 2
-    milestone: M5
-    path: docs/archive/phase-1-foundation/stories/S-003-git-worktrees.md
-  - id: S-004
-    title: SvelteKit Project Scaffolding
+  - id: M11
+    title: Climate Integration
+    description: Frost dates, growing seasons, and hardiness zones
     status: complete
-    priority: 2
-    milestone: null
-    path: docs/archive/phase-1-foundation/stories/S-004-sveltekit-scaffold.md
-  - id: S-005
-    title: Solar Calculation Engine
-    status: complete
-    priority: 1
-    milestone: M7
-    path: docs/active/stories/S-005-solar-engine.md
-  - id: S-006
-    title: Location Input System
-    status: in-progress
-    priority: 1
-    milestone: M8
-    path: docs/active/stories/S-006-location-input.md
-  - id: S-007
-    title: Task Management Workflow Audit
-    status: pending
-    priority: 1
-    milestone: null
-    path: docs/active/stories/S-007-workflow-audit.md
+stories: []
 nodes:
-  - id: S-001-R
-    title: Research Ralph Loop integration
-    story: S-001
-    milestone: M6
+  - id: T-016-01
+    title: Research plant recommendations approach
+    story: S-016
+    description: See docs/active/tickets/T-016-01-recommendations-research.md for details.
     priority: 1
     complexity: M
     status: complete
-    completed_at: "2026-01-27"
-    output: docs/knowledge/research/ralph-loop.md
-  - id: S-001-P
-    title: Plan Ralph Loop implementation
-    story: S-001
-    milestone: M6
+    assignee: null
+    output: docs/knowledge/research/plant-recommendations.md
+    path: docs/active/tickets/T-016-01-recommendations-research.md
+    completed_at: "2026-01-29T16:30:00.000Z"
+  - id: T-016-02
+    title: Add plant data types and interfaces
+    story: S-016
+    description: Create `src/lib/plants/types.ts` with interfaces for plant data, light requirements, and recommendation results. Also create `src/lib/plants/index.ts` to export the module.
     priority: 1
     complexity: S
     status: complete
-    completed_at: "2026-01-27"
-    output: docs/archive/phase-1-foundation/stories/S-001-ralph-loop.md
-  - id: S-001-I
-    title: Implement Ralph Loop integration
-    story: S-001
-    milestone: M6
+    assignee: null
+    output: src/lib/plants/types.ts
+    path: docs/active/tickets/T-016-02-plant-types.md
+    completed_at: "2026-01-29T17:00:00.000Z"
+  - id: T-016-03
+    title: Create plant database
+    story: S-016
+    description: Create `src/lib/plants/database.ts` containing a hardcoded array of 20-30 common vegetables, herbs, and flowers with their light requirements, days to maturity, and temperature tolerance.
     priority: 1
     complexity: M
     status: complete
-    output: tools/ralph.sh
-    completed_at: "2026-01-28"
-  - id: S-002-R
-    title: Research DAG parsing approaches
-    story: S-002
+    assignee: null
+    output: src/lib/plants/database.ts
+    path: docs/active/tickets/T-016-03-plant-database.md
+    completed_at: "2026-01-29T17:30:00.000Z"
+  - id: T-016-04
+    title: Implement recommendation engine
+    story: S-016
+    description: Create `src/lib/plants/recommendations.ts` with a function that takes effective sun hours (from shade analysis) and climate data (from S-015) and returns plant recommendations.
     priority: 1
     complexity: M
     status: complete
-    completed_at: "2026-01-27"
-    output: docs/knowledge/research/dag-parsing.md
-  - id: S-002-P
-    title: Plan DAG parsing implementation
-    story: S-002
-    priority: 1
-    complexity: S
-    status: complete
-    completed_at: "2026-01-27"
-    output: docs/archive/phase-1-foundation/stories/S-002-dag-parsing.md
-  - id: S-002-I
-    title: Implement DAG parsing and prompt generation
-    story: S-002
-    priority: 1
-    complexity: L
-    status: complete
-    completed_at: "2026-01-27"
-    output: tools/
-  - id: S-003-R
-    title: Research Git worktree workflow
-    story: S-003
-    milestone: M5
-    priority: 2
-    complexity: M
-    status: complete
-    completed_at: "2026-01-27"
-    output: docs/knowledge/research/git-worktrees.md
-  - id: S-003-P
-    title: Plan Git worktree workflow
-    story: S-003
-    milestone: M5
-    priority: 2
-    complexity: S
-    status: complete
-    completed_at: "2026-01-27"
-    output: docs/archive/phase-1-foundation/stories/S-003-git-worktrees.md
-  - id: S-003-I
-    title: Implement Git worktree commands
-    story: S-003
-    milestone: M5
-    priority: 2
-    complexity: S
-    status: complete
-    output: justfile
-    completed_at: "2026-01-28"
-  - id: S-004-I
-    title: Initialize SvelteKit project
-    story: S-004
-    priority: 2
-    complexity: S
-    status: complete
-    output: src/
-    completed_at: "2026-01-28"
-  - id: T-003-01
-    title: Implement worktree-new command
-    story: S-003
-    milestone: M5
-    priority: 2
-    complexity: M
-    status: complete
-    path: docs/archive/phase-1-foundation/tickets/T-003-01-worktree-new.md
-    output: justfile
-    completed_at: "2026-01-28"
-  - id: T-003-02
-    title: Implement worktree-list and worktree-remove commands
-    story: S-003
-    milestone: M5
-    priority: 2
-    complexity: M
-    status: complete
-    path: docs/archive/phase-1-foundation/tickets/T-003-02-worktree-list-remove.md
-    output: justfile
-    completed_at: "2026-01-28"
-  - id: T-003-03
-    title: Add coordination docs and prompt warning
-    story: S-003
-    milestone: M5
-    priority: 2
-    complexity: S
-    status: complete
-    path: docs/archive/phase-1-foundation/tickets/T-003-03-coordination-docs.md
-    output: tools/prompt.ts
-    completed_at: "2026-01-28"
-  - id: T-001-01
-    title: Implement core Ralph loop script
-    story: S-001
-    milestone: M6
+    assignee: null
+    output: src/lib/plants/recommendations.ts
+    path: docs/active/tickets/T-016-04-recommendation-engine.md
+    completed_at: "2026-01-29T18:33:00.000Z"
+  - id: T-016-05
+    title: Create recommendations UI component
+    story: S-016
+    description: Create `src/lib/components/PlantRecommendations.svelte` that takes recommendation data and displays it in a user-friendly format.
     priority: 1
     complexity: M
     status: complete
-    path: docs/archive/phase-1-foundation/tickets/T-001-01-core-loop.md
-    output: tools/ralph.sh
-    completed_at: "2026-01-28"
-  - id: T-001-02
-    title: Implement Ralph logging infrastructure
-    story: S-001
-    milestone: M6
-    priority: 1
-    complexity: S
-    status: complete
-    path: docs/archive/phase-1-foundation/tickets/T-001-02-logging.md
-    output: tools/ralph.sh
-    completed_at: "2026-01-28"
-  - id: T-001-03
-    title: Add just ralph command and documentation
-    story: S-001
-    milestone: M6
-    priority: 1
-    complexity: S
-    status: complete
-    path: docs/archive/phase-1-foundation/tickets/T-001-03-justfile.md
-    output: justfile
-    completed_at: "2026-01-28"
-  - id: S-005-R
-    title: Research solar calculation algorithms
-    story: S-005
-    milestone: M7
-    description: |
-      Research solar position algorithms and libraries:
-      - Compare SunCalc, solar-calculator, and NOAA algorithms
-      - Evaluate accuracy vs complexity tradeoffs
-      - Determine time resolution for sun-hour integration
-      - Assess atmospheric refraction requirements
-      - Document edge cases (polar regions, extreme dates)
-
-      Output: docs/knowledge/research/solar-algorithms.md
+    assignee: null
+    output: src/lib/components/PlantRecommendations.svelte
+    path: docs/active/tickets/T-016-05-recommendations-component.md
+    completed_at: "2026-01-29T19:00:00.000Z"
+  - id: T-016-06
+    title: Create planting calendar component
+    story: S-016
+    description: Create `src/lib/components/PlantingCalendar.svelte` that displays key gardening dates in a timeline format.
     priority: 1
     complexity: M
     status: complete
-    completed_at: "2026-01-28"
-    output: docs/knowledge/research/solar-algorithms.md
-  - id: S-005-P
-    title: Plan solar engine implementation
-    story: S-005
-    milestone: M7
-    description: |
-      Based on research, create implementation plan:
-      - Define module structure in src/lib/solar/
-      - Specify TypeScript interfaces for inputs/outputs
-      - Plan test cases for standard and edge scenarios
-      - Create tickets for implementation work
-
-      Output: Updated S-005 story with implementation plan
-    priority: 1
-    complexity: S
-    status: complete
-    completed_at: "2026-01-28"
-    output: docs/active/stories/S-005-solar-engine.md
-  - id: S-005-I
-    title: Implement solar calculation engine
-    story: S-005
-    milestone: M7
-    description: |
-      Implement the solar engine per the plan:
-      - Sun position calculator (altitude, azimuth)
-      - Sun hours integrator
-      - Seasonal aggregator
-      - Light category classifier
-
-      Output: src/lib/solar/
-    priority: 1
-    complexity: L
-    status: complete
-    completed_at: "2026-01-28"
-    output: src/lib/solar/
-  - id: T-005-01
-    title: Implement sun position calculator
-    story: S-005
-    milestone: M7
-    description: |
-      Create the position module wrapping SunCalc:
-      - Install SunCalc dependency
-      - Create types.ts with shared interfaces
-      - Implement getSunPosition and getSunTimes
-      - Handle radian-to-degree conversion
-      - Detect polar conditions
-
-      Output: src/lib/solar/types.ts, src/lib/solar/position.ts
+    assignee: null
+    output: src/lib/components/PlantingCalendar.svelte
+    path: docs/active/tickets/T-016-06-planting-calendar.md
+    completed_at: "2026-01-29T19:35:00.000Z"
+  - id: T-016-07
+    title: Create seasonal light chart
+    story: S-016
+    description: Create `src/lib/components/SeasonalLightChart.svelte` that displays how effective sun hours vary across the year.
     priority: 1
     complexity: M
     status: complete
-    path: docs/active/tickets/T-005-01-sun-position.md
-    completed_at: "2026-01-28"
-    output: src/lib/solar/types.ts, src/lib/solar/position.ts
-  - id: T-005-02
-    title: Implement sun hours integrator
-    story: S-005
-    milestone: M7
-    description: |
-      Create the integration module for daily sun hours:
-      - Sample altitude at 5-minute intervals
-      - Sum intervals where altitude > 0
-      - Return DailySunData with polar condition
-
-      Output: src/lib/solar/sun-hours.ts
+    assignee: null
+    output: src/lib/components/SeasonalLightChart.svelte
+    path: docs/active/tickets/T-016-07-seasonal-light-chart.md
+    completed_at: "2026-01-29T20:00:00.000Z"
+  - id: T-016-08
+    title: Integrate recommendations into results page
+    story: S-016
+    description: Update `src/routes/results/+page.svelte` to include the PlantRecommendations, PlantingCalendar, and SeasonalLightChart components.
     priority: 1
     complexity: M
     status: complete
-    path: docs/active/tickets/T-005-02-sun-hours.md
-    completed_at: "2026-01-28"
-    output: src/lib/solar/sun-hours.ts
-  - id: T-005-03
-    title: Implement seasonal aggregator
-    story: S-005
-    milestone: M7
-    description: |
-      Create aggregation module for date ranges:
-      - getSeasonalSummary for arbitrary ranges
-      - getMonthlySummary convenience function
-      - getYearlySummary for annual patterns
-
-      Output: src/lib/solar/seasonal.ts
-    priority: 1
-    complexity: M
-    status: complete
-    path: docs/active/tickets/T-005-03-seasonal.md
-    completed_at: "2026-01-28"
-    output: src/lib/solar/seasonal.ts
-  - id: T-005-04
-    title: Wire up integration and add tests
-    story: S-005
-    milestone: M7
-    description: |
-      Complete integration and testing:
-      - Update index.ts to re-export all APIs
-      - Add tests for Portland, Singapore, Tromsø
-      - Add polar condition tests
-      - Add performance benchmarks
-
-      Output: src/lib/solar/index.ts, test files
-    priority: 1
-    complexity: M
-    status: complete
-    path: docs/active/tickets/T-005-04-integration-testing.md
-    completed_at: "2026-01-28"
-    output: src/lib/solar/index.ts, src/lib/solar/*.test.ts
-  - id: S-006-R
-    title: Research location and geocoding options
-    story: S-006
-    milestone: M8
-    description: |
-      Research geocoding and location handling:
-      - Evaluate geocoding APIs for Cloudflare Workers
-      - Compare client-side vs edge proxy approaches
-      - Research timezone inference from coordinates
-      - Document browser geolocation API patterns
-      - Identify coordinate format edge cases
-
-      Output: docs/knowledge/research/location-geocoding.md
-    priority: 1
-    complexity: M
-    status: complete
-    completed_at: "2026-01-28"
-    output: docs/knowledge/research/location-geocoding.md
-  - id: S-006-P
-    title: Plan location system implementation
-    story: S-006
-    milestone: M8
-    description: |
-      Based on research, create implementation plan:
-      - Define module structure in src/lib/geo/
-      - Specify component architecture for location input
-      - Plan API integration and error handling
-      - Create tickets for implementation work
-
-      Output: Updated S-006 story with implementation plan
-    priority: 1
-    complexity: S
-    status: complete
-    completed_at: "2026-01-28"
-    output: docs/active/stories/S-006-location-input.md
-  - id: S-006-I
-    title: Implement location input system
-    story: S-006
-    milestone: M8
-    description: |
-      Implement the location system per the plan:
-      - Geocoding API integration
-      - Coordinate validation and parsing
-      - Timezone detection
-      - Location input UI component
-
-      Output: src/lib/geo/, src/lib/components/
-    priority: 1
-    complexity: L
-    status: ready
-  - id: T-006-01
-    title: Implement coordinate parsing and validation
-    story: S-006
-    milestone: M8
-    description: |
-      Create the coordinate module that handles parsing and validation:
-      - Install geo-coordinates-parser dependency
-      - Implement parseCoordinates for decimal and DMS formats
-      - Implement validateCoordinates for range checking
-      - Return structured error information for invalid inputs
-
-      Output: src/lib/geo/types.ts, src/lib/geo/coordinates.ts
-    priority: 1
-    complexity: M
-    status: complete
-    completed_at: "2026-01-28"
-    output: src/lib/geo/types.ts, src/lib/geo/coordinates.ts
-  - id: T-006-02
-    title: Implement timezone detection
-    story: S-006
-    milestone: M8
-    description: |
-      Create the timezone module wrapping tz-lookup:
-      - Install tz-lookup dependency
-      - Implement getTimezone for coordinate-based lookup
-      - Handle undefined fallback to UTC with flag
-      - Test major cities and edge cases
-
-      Output: src/lib/geo/timezone.ts
-    priority: 1
-    complexity: S
-    status: ready
-  - id: T-006-03
-    title: Implement geocoding integration
-    story: S-006
-    milestone: M8
-    description: |
-      Create the geocoding module for Nominatim API:
-      - Implement geocodeAddress with rate limiting
-      - Format requests with proper headers
-      - Parse responses into internal types
-      - Handle network errors and no-results cases
-
-      Output: src/lib/geo/geocoding.ts
-    priority: 1
-    complexity: M
-    status: pending
-  - id: T-006-04
-    title: Implement location input component
-    story: S-006
-    milestone: M8
-    description: |
-      Create the Svelte component for location input:
-      - Address search mode with Nominatim integration
-      - Manual coordinates mode with format detection
-      - Current location mode with geolocation API
-      - Error states and user feedback
-
-      Output: src/lib/components/LocationInput.svelte
-    priority: 1
-    complexity: L
-    status: pending
-  - id: S-007-R
-    title: Research workflow failure modes
-    story: S-007
-    description: |
-      Analyze the failures that occurred during S-005/S-006 execution:
-      - Document each failure mode with specific examples
-      - Trace root causes in the tooling
-      - Answer research questions from story
-      - Evaluate proposed fixes for feasibility
-
-      Output: docs/knowledge/research/workflow-failures.md
-    priority: 1
-    complexity: M
-    status: ready
-  - id: S-007-P
-    title: Plan workflow fixes
-    story: S-007
-    description: |
-      Based on research, create implementation plan:
-      - Prioritize fixes by impact and complexity
-      - Define test cases for each fix
-      - Create tickets for implementation work
-      - Update story with detailed approach
-
-      Output: Updated S-007 story with implementation plan
-    priority: 1
-    complexity: S
-    status: pending
-  - id: S-007-I
-    title: Implement workflow fixes
-    story: S-007
-    description: |
-      Implement the planned fixes to task management:
-      - Mandatory story filter for ralph loops
-      - Worktree validation at loop start
-      - Deliverable verification on task-complete
-      - Enhanced audit logging
-
-      Output: tools/prompt.ts, tools/ralph.sh, tools/dag.ts
-    priority: 1
-    complexity: M
-    status: pending
+    assignee: null
+    output: src/routes/results/+page.svelte
+    path: docs/active/tickets/T-016-08-results-integration.md
+    completed_at: "2026-01-29T20:30:00.000Z"
 edges:
-  - from: S-001-R
-    to: S-001-P
-  - from: S-001-P
-    to: S-001-I
-  - from: S-002-R
-    to: S-002-P
-  - from: S-002-P
-    to: S-002-I
-  - from: S-003-R
-    to: S-003-P
-  - from: S-003-P
-    to: S-003-I
-  - from: S-003-P
-    to: T-003-01
-  - from: T-003-01
-    to: T-003-02
-  - from: T-003-02
-    to: T-003-03
-  - from: T-003-03
-    to: S-003-I
-  - from: S-001-P
-    to: S-004-I
-  - from: S-002-P
-    to: S-004-I
-  - from: S-003-P
-    to: S-004-I
-  - from: S-001-P
-    to: T-001-01
-  - from: T-001-01
-    to: T-001-02
-  - from: T-001-02
-    to: T-001-03
-  - from: T-001-03
-    to: S-001-I
-  - from: S-005-R
-    to: S-005-P
-  - from: S-005-P
-    to: S-005-I
-  - from: S-005-P
-    to: T-005-01
-  - from: T-005-01
-    to: T-005-02
-  - from: T-005-02
-    to: T-005-03
-  - from: T-005-03
-    to: T-005-04
-  - from: T-005-04
-    to: S-005-I
-  - from: S-006-R
-    to: S-006-P
-  - from: S-006-P
-    to: S-006-I
-  - from: S-006-P
-    to: T-006-01
-  - from: T-006-01
-    to: T-006-02
-  - from: T-006-02
-    to: T-006-03
-  - from: T-006-03
-    to: T-006-04
-  - from: T-006-04
-    to: S-006-I
-  - from: S-007-R
-    to: S-007-P
-  - from: S-007-P
-    to: S-007-I
+  - from: T-016-01
+    to: T-016-02
+  - from: T-016-02
+    to: T-016-03
+  - from: T-016-03
+    to: T-016-04
+  - from: T-016-04
+    to: T-016-05
+  - from: T-016-04
+    to: T-016-06
+  - from: T-016-04
+    to: T-016-07
+  - from: T-016-05
+    to: T-016-08
+  - from: T-016-06
+    to: T-016-08
+  - from: T-016-07
+    to: T-016-08
 meta:
-  total_stories: 7
-  total_tasks: 33
-  total_milestones: 8
+  total_stories: 0
+  total_tasks: 8
+  total_milestones: 11
   by_status:
-    ready: 3
-    pending: 4
+    ready: 0
+    pending: 0
     in_progress: 0
-    complete: 26
+    complete: 8
     blocked: 0
-  by_priority:
-    p1: 23
-    p2: 7
-  by_milestone:
-    M1:
-      - S-002-I
-    M2:
-      - S-002-I
-    M3:
-      - S-002-I
-    M4:
-      - S-002-I
-    M5:
-      - S-003-I
-      - T-003-01
-      - T-003-02
-      - T-003-03
-    M6:
-      - S-001-I
-      - T-001-01
-      - T-001-02
-      - T-001-03
-    M7:
-      - S-005-R
-      - S-005-P
-      - S-005-I
-      - T-005-01
-      - T-005-02
-      - T-005-03
-      - T-005-04
-    M8:
-      - S-006-R
-      - S-006-P
-      - S-006-I
-      - T-006-01
-      - T-006-02
-      - T-006-03
-      - T-006-04
+  by_priority: {}
+  by_milestone: {}

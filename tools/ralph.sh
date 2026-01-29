@@ -2,22 +2,26 @@
 #
 # ralph.sh - Autonomous coding loop for processing DAG tasks
 #
-# This script continuously pulls tasks from task-graph.yaml via `just prompt`
+# This script continuously claims tasks from task-graph.yaml via `just prompt --accept`
 # and executes them through Claude Code. It runs until all tasks are complete
 # or blocked, handling errors gracefully without crashing on individual failures.
+#
+# IMPORTANT: Ralph loops require a WORKTREE_STORY filter to prevent cross-story
+# task pollution. The loop must also run from a linked worktree, not the main repo.
 #
 # Logs are written to logs/ralph.jsonl in newline-delimited JSON format.
 # A heartbeat timestamp is written to logs/ralph.heartbeat each iteration.
 #
-# Usage: just ralph
-#        WORKTREE_STORY=S-005 just ralph  # Only process tasks for story S-005
+# Usage: just ralph-story S-005      # Process only S-005 tasks (recommended)
+#        WORKTREE_STORY=S-005 just ralph  # Equivalent
 #
 # Environment variables:
-#   WORKTREE_STORY - If set, only claim tasks belonging to this story
-#                    (e.g., "S-005" for solar engine, "S-006" for location)
+#   WORKTREE_STORY - REQUIRED: Story filter (e.g., "S-005" for solar engine)
+#   RALPH_ALLOW_MAIN - Set to "1" to allow running from main repo (dangerous)
 #
 # Exit codes:
 #   0 - All tasks complete or all remaining tasks blocked
+#   1 - Validation failure (missing story filter, running from main repo)
 #   130 - Interrupted by SIGINT (Ctrl-C)
 #   143 - Interrupted by SIGTERM
 
@@ -32,6 +36,74 @@ HEARTBEAT_FILE="$LOGS_DIR/ralph.heartbeat"
 
 # Create logs directory if it doesn't exist
 mkdir -p "$LOGS_DIR"
+
+# =============================================================================
+# Validation Guards
+# =============================================================================
+
+# Check if running from main repo (not a linked worktree)
+check_worktree() {
+    local git_path="$PROJECT_ROOT/.git"
+
+    # In a linked worktree, .git is a file pointing to the main repo
+    # In the main repo, .git is a directory
+    if [ -d "$git_path" ]; then
+        if [ "${RALPH_ALLOW_MAIN:-}" = "1" ]; then
+            echo "⚠️  Warning: Running from main repo (RALPH_ALLOW_MAIN=1)"
+            echo "   This is dangerous - work should happen in worktrees."
+            echo ""
+        else
+            echo "❌ Error: Cannot run Ralph loop from main repo."
+            echo ""
+            echo "   Ralph loops must run in a linked worktree to:"
+            echo "   - Keep work isolated on feature branches"
+            echo "   - Prevent conflicts with other agents"
+            echo "   - Enable clean PR workflow"
+            echo ""
+            echo "   Create a worktree and try again:"
+            echo "     just worktree-new my-worktree"
+            echo "     cd ../solar-sim-my-worktree"
+            echo "     WORKTREE_STORY=S-XXX just ralph"
+            echo ""
+            echo "   Or set RALPH_ALLOW_MAIN=1 to override (not recommended)."
+            exit 1
+        fi
+    fi
+}
+
+# Check that WORKTREE_STORY is set
+check_story_filter() {
+    if [ -z "${WORKTREE_STORY:-}" ]; then
+        echo "❌ Error: WORKTREE_STORY environment variable is required."
+        echo ""
+        echo "   Ralph loops must be scoped to a single story to prevent"
+        echo "   cross-story task pollution and ensure focused work."
+        echo ""
+        echo "   Usage:"
+        echo "     just ralph-story S-005    # Recommended"
+        echo "     WORKTREE_STORY=S-005 just ralph"
+        echo ""
+        echo "   Run 'just dag-status' to see available stories."
+        exit 1
+    fi
+
+    # Validate story ID format
+    if [[ ! "$WORKTREE_STORY" =~ ^S-[0-9]{3}$ ]]; then
+        echo "⚠️  Warning: WORKTREE_STORY='$WORKTREE_STORY' doesn't match expected format S-NNN"
+        echo "   Continuing anyway, but this may indicate a typo."
+        echo ""
+    fi
+}
+
+# Run all validation checks
+run_validation() {
+    check_worktree
+    check_story_filter
+}
+
+# =============================================================================
+# Logging and Utilities
+# =============================================================================
 
 # Track statistics for summary
 iteration=0
@@ -84,6 +156,7 @@ log_entry() {
             --argjson dur "$duration" \
             --arg ec "$exit_code" \
             --arg out "$outcome" \
+            --arg story "${WORKTREE_STORY:-}" \
             '{
                 timestamp: $ts,
                 iteration: $iter,
@@ -91,7 +164,8 @@ log_entry() {
                 action: $act,
                 duration_seconds: $dur,
                 exit_code: (if $ec == "null" then null else ($ec | tonumber) end),
-                outcome: $out
+                outcome: $out,
+                story_filter: (if $story == "" then null else $story end)
             }')
     else
         # Manual JSON construction - escape special characters in outcome
@@ -112,7 +186,14 @@ log_entry() {
             exit_json="$exit_code"
         fi
 
-        json_line="{\"timestamp\":\"$timestamp\",\"iteration\":$iter,\"task_id\":$task_json,\"action\":\"$action\",\"duration_seconds\":$duration,\"exit_code\":$exit_json,\"outcome\":\"$escaped_outcome\"}"
+        local story_json
+        if [ -z "${WORKTREE_STORY:-}" ]; then
+            story_json="null"
+        else
+            story_json="\"$WORKTREE_STORY\""
+        fi
+
+        json_line="{\"timestamp\":\"$timestamp\",\"iteration\":$iter,\"task_id\":$task_json,\"action\":\"$action\",\"duration_seconds\":$duration,\"exit_code\":$exit_json,\"outcome\":\"$escaped_outcome\",\"story_filter\":$story_json}"
     fi
 
     # Atomic write: write to temp file then move
@@ -188,6 +269,7 @@ print_summary() {
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "📊 Ralph Loop Summary"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "   Story:      ${WORKTREE_STORY:-'(none)'}"
     echo "   Iterations: $iteration"
     echo "   Completed:  $completed"
     echo "   Failed:     $failed"
@@ -195,24 +277,31 @@ print_summary() {
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 }
 
+# =============================================================================
+# Main
+# =============================================================================
+
 # Register signal handlers
 trap handle_sigint SIGINT
 trap handle_sigterm SIGTERM
 trap cleanup EXIT
 
+# Run validation before starting
+run_validation
+
+# Export WORKTREE_STORY for child processes
+export WORKTREE_STORY
+
 # Main header
 echo "🔄 Starting Ralph Loop..."
+echo "   Story filter: $WORKTREE_STORY"
 echo "   Pulling tasks from DAG and executing via Claude Code"
-if [ -n "${WORKTREE_STORY:-}" ]; then
-    echo "   Story filter: $WORKTREE_STORY"
-    export WORKTREE_STORY
-fi
 echo "   Logs: $LOG_FILE"
 echo "   Heartbeat: $HEARTBEAT_FILE"
 echo ""
 
 # Log loop start
-log_entry 0 "null" "loop_started" 0 "null" "Ralph loop starting"
+log_entry 0 "null" "loop_started" 0 "null" "Ralph loop starting for story $WORKTREE_STORY"
 
 # Main loop
 while true; do
@@ -222,9 +311,10 @@ while true; do
     write_heartbeat
 
     # Capture prompt, stderr, and exit code
+    # Use --accept to actually claim the task (just prompt alone is read-only)
     prompt_stderr=$(mktemp)
     claude_stderr=$(mktemp)
-    if just prompt > "$prompt_file" 2> "$prompt_stderr"; then
+    if just prompt --accept > "$prompt_file" 2> "$prompt_stderr"; then
         # Got a task - extract task ID from prompt for display
         task_id=$(grep -m1 "^Your task:" "$prompt_file" | sed 's/Your task: \([^ ]*\).*/\1/' || echo "unknown")
         if [ "$task_id" = "unknown" ] || [ -z "$task_id" ]; then
@@ -243,7 +333,14 @@ while true; do
         if claude --dangerously-skip-permissions < "$prompt_file" 2> "$claude_stderr"; then
             task_end=$(date +%s)
             task_duration=$((task_end - task_start))
-            echo "    ✓ Complete (${task_duration}s)"
+            echo "    ✓ Claude finished (${task_duration}s)"
+
+            # Clear current-task tracking so next iteration can claim
+            # The agent should have updated task-graph.yaml, but may not have run task-complete
+            if [ -f "$PROJECT_ROOT/.ralph/current-task" ]; then
+                rm -f "$PROJECT_ROOT/.ralph/current-task"
+            fi
+
             completed=$((completed + 1))
             reset_rate_limit
 
@@ -282,24 +379,31 @@ while true; do
         # Check the reason for no work
         if echo "$stderr_content" | grep -qi "all.*complete\|no.*tasks\|complete"; then
             echo ""
-            echo "✓ All tasks complete!"
-            log_entry "$iteration" "null" "finished" 0 "null" "All tasks complete"
+            echo "✓ All tasks complete for story $WORKTREE_STORY!"
+            log_entry "$iteration" "null" "finished" 0 "null" "All tasks complete for story $WORKTREE_STORY"
             print_summary
             exit 0
-        elif echo "$stderr_content" | grep -qi "blocked\|in.progress\|waiting"; then
+        elif echo "$stderr_content" | grep -qi "blocked\|in.progress\|waiting\|already working"; then
             echo ""
-            echo "⏸ No tasks available - remaining tasks are blocked or in progress"
+            echo "⏸ No tasks available for story $WORKTREE_STORY"
+            echo "  Remaining tasks may be blocked, in progress, or complete."
             echo "  Run 'just dag-status' to see current state"
-            log_entry "$iteration" "null" "blocked" 0 "null" "No tasks available - all blocked or in progress"
+            log_entry "$iteration" "null" "blocked" 0 "null" "No tasks available for story $WORKTREE_STORY"
             print_summary
             exit 0
+        elif echo "$stderr_content" | grep -qi "cannot claim.*main repo"; then
+            echo ""
+            echo "❌ Cannot claim tasks from main repo"
+            echo "   $stderr_content"
+            log_entry "$iteration" "null" "error" 0 "$prompt_exit" "Blocked: running from main repo"
+            exit 1
         else
             # Unknown reason - check if it's just that no tasks are ready
             if [ -z "$(cat "$prompt_file")" ]; then
                 echo ""
-                echo "⏸ No tasks available"
+                echo "⏸ No tasks available for story $WORKTREE_STORY"
                 echo "  Run 'just dag-status' to see current state"
-                log_entry "$iteration" "null" "finished" 0 "null" "No tasks available"
+                log_entry "$iteration" "null" "finished" 0 "null" "No tasks available for story $WORKTREE_STORY"
                 print_summary
                 exit 0
             else

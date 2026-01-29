@@ -1,121 +1,71 @@
 # Solar-Sim Roadmap
 
-> **Last Updated**: 2026-01-28
+> **Last Updated**: 2026-01-29
 
-This document tracks project status and planned work. For milestone details, see `docs/active/MILESTONES.md`.
+This document tracks project status and planned work.
 
 ---
 
-## Current Phase: Application Features
+## Current Phase: Combined Recommendations
 
-Phase 1 (Foundation & Tooling) is complete. We're now building the core application features using two concurrent ralph loops in separate worktrees.
+Climate integration is complete. Users can see frost dates, hardiness zones, and a growing season timeline. Now we're adding the recommendation engine that combines shade and climate data into plant suggestions.
 
-### Active Worktrees
+### Completed Phases
 
-Two worktrees are set up for parallel development. Each worktree handles one story independently, and work merges back to main via pull request.
+**Phase 1: Foundation** built workflow tooling (DAG parsing, prompt generation, worktree commands). Archived in `docs/archive/phase-1-foundation/`.
 
-| Worktree | Branch | Story | Focus |
-|----------|--------|-------|-------|
-| `solar-sim-solar` | `feature/solar` | S-005 | Solar calculation engine |
-| `solar-sim-location` | `feature/location` | S-006 | Location input system |
+**Phase 2: First Implementation** created initial solar and location code, revealed workflow bugs. Archived in `docs/archive/phase-2-false-start/`.
 
-### Running Concurrent Loops
+**Phase 3: Verification** confirmed solar engine (127 tests) and location system (79 tests) work correctly. Archived in `docs/archive/phase-3-verification/`.
 
-Open two terminal windows and run each loop independently. They will process their respective R-P-I chains without conflicting since the stories touch different files.
+**Phase 4-QA: Ralph Loop** tested single-agent execution end-to-end, fixed current-task clearing bug. Archived in `docs/archive/phase-4-qa/`.
+
+**Phase 5: Application Integration** connected solar engine and location system to produce core user experience. Archived in `docs/archive/phase-5-integration/`.
+
+**Phase 6: Shade Modeling** added obstacle input via blueprint/plan view, shadow intersection math, and effective sun hours calculation. Archived in `docs/archive/phase-6-shade/`.
+
+**Phase 7: Climate Integration** added frost date lookup, hardiness zone calculation, and growing season timeline component. Archived in `docs/archive/phase-7-climate/`.
+
+---
+
+## Active Story: S-016 Combined Recommendations
+
+Merging shade and climate data into unified plant recommendations with planting calendar and seasonal views.
+
+### Ticket Status
+
+| Ticket | Title | Status | Depends On |
+|--------|-------|--------|------------|
+| T-016-01 | Research plant recommendations | Ready | — |
+| T-016-02 | Add plant types | Pending | T-016-01 |
+| T-016-03 | Create plant database | Pending | T-016-02 |
+| T-016-04 | Implement recommendation engine | Pending | T-016-02 |
+| T-016-05 | Create recommendations component | Pending | T-016-04 |
+| T-016-06 | Create planting calendar | Pending | T-016-04 |
+| T-016-07 | Create seasonal light chart | Pending | T-016-04 |
+| T-016-08 | Results page integration | Pending | T-016-05, T-016-06, T-016-07 |
+
+### Running the Sprint
 
 ```bash
-# Terminal 1: Solar engine work
-cd ../solar-sim-solar
-just ralph
-
-# Terminal 2: Location system work
-cd ../solar-sim-location
-just ralph
+RALPH_ALLOW_MAIN=1 WORKTREE_STORY=S-016 just ralph
 ```
-
-For detailed orchestration instructions, see `docs/knowledge/playbook/concurrent-ralph.md`.
-
----
-
-## Active Stories
-
-### S-005: Solar Calculation Engine
-
-Implements sun position and sun hours calculations in `src/lib/solar/`.
-
-| Task | Description | Status |
-|------|-------------|--------|
-| S-005-R | Research solar algorithms | Ready |
-| S-005-P | Plan implementation | Pending |
-| S-005-I | Implement engine | Pending |
-
-### S-006: Location Input System
-
-Implements geocoding, coordinates, and location UI in `src/lib/geo/` and `src/lib/components/`.
-
-| Task | Description | Status |
-|------|-------------|--------|
-| S-006-R | Research geocoding options | Ready |
-| S-006-P | Plan implementation | Pending |
-| S-006-I | Implement system | Pending |
-
----
-
-## Task Graph
-
-```
-READY NOW (parallel in separate worktrees):
-├── S-005-R  Research solar algorithms      [P1] → solar-sim-solar
-└── S-006-R  Research geocoding options     [P1] → solar-sim-location
-
-PENDING (unblocks after research):
-├── S-005-P  Plan solar engine
-├── S-006-P  Plan location system
-
-PENDING (unblocks after planning):
-├── S-005-I  Implement solar engine
-└── S-006-I  Implement location system
-```
-
----
-
-## Milestone Summary
-
-### Phase 2: In Progress
-
-| Milestone | Description | Status | Worktree |
-|-----------|-------------|--------|----------|
-| M7 | Solar Engine | Pending | solar-sim-solar |
-| M8 | Location System | Pending | solar-sim-location |
-
-### Phase 1: Complete
-
-| Milestone | Description | Status |
-|-----------|-------------|--------|
-| M1 | DAG Introspection | Complete |
-| M2 | Frontmatter Scanning | Complete |
-| M3 | Basic Prompt | Complete |
-| M4 | Task Lifecycle | Complete |
-| M5 | Worktree Commands | Complete |
-| M6 | Ralph Loop | Complete |
-
-Phase 1 artifacts are archived in `docs/archive/phase-1-foundation/`.
 
 ---
 
 ## Upcoming Phases
 
-### Phase 3: Integration
+### Phase 8: Polish & Launch
 
-After M7 and M8 complete, integrate the solar engine with location input to produce the core user experience described in `docs/happy_path.md`.
+- Mobile optimization
+- Shareable URLs with preview metadata
+- Documentation and help content
 
-### Phase 4: Visualization
+---
 
-Add sun path diagrams, seasonal heatmaps, and calendar views.
+## Overseer Handoff
 
-### Phase 5: Polish & Launch
-
-Recommendations engine, shareable URLs, mobile optimization, and documentation.
+For new overseer agents continuing this project, see `docs/knowledge/playbook/overseer-handoff.md` for comprehensive onboarding.
 
 ---
 
@@ -126,26 +76,19 @@ Recommendations engine, shareable URLs, mobile optimization, and documentation.
 just dag-status
 ```
 
-**Create worktrees** (if not already created):
+**Run sprint**:
 ```bash
-just worktree-new solar
-just worktree-new location
+RALPH_ALLOW_MAIN=1 WORKTREE_STORY=S-XXX just ralph
 ```
 
-**Run loops**:
+**Preview next task**:
 ```bash
-cd ../solar-sim-solar && just ralph
-cd ../solar-sim-location && just ralph
+just prompt
 ```
 
-**Monitor**:
+**Refresh DAG from tickets**:
 ```bash
-just ralph-status   # in each worktree
-just ralph-logs     # tail logs
+just dag-refresh
 ```
 
-**After PR merged, clean up**:
-```bash
-just worktree-remove solar
-just worktree-remove location
-```
+See `docs/knowledge/playbook/ralph-loop.md` for detailed ralph loop instructions.

@@ -479,10 +479,79 @@ After S-004:
 
 ---
 
+## Implementation Status (Updated 2026-01-28)
+
+All recommendations from this research have been implemented. Additionally, S-007 extended the original design with ticket-first DAG generation.
+
+### Original Recommendations ✓
+
+All four original milestones were completed:
+- **M1 (DAG Introspection)**: `just dag-status` shows real data from task-graph.yaml
+- **M2 (Frontmatter Scanning)**: `just dag-refresh` validates documents against DAG
+- **M3 (Prompt Generation)**: `just prompt` selects task and outputs usable prompt
+- **M4 (Task Lifecycle)**: Claiming, completion, and recovery mechanisms
+
+The implementation uses:
+- Node.js with `js-yaml` for YAML parsing (as recommended)
+- Regex extraction for frontmatter (as recommended)
+- Priority-first, then FIFO for task selection (as recommended)
+- `proper-lockfile` for atomic updates (as recommended)
+
+### S-007 Extension: Ticket-First Generation
+
+The original design treated task-graph.yaml as the source of truth with frontmatter as validation. S-007 inverted this to make tickets authoritative:
+
+**New behavior of `just dag-refresh`:**
+
+1. Scans `docs/active/tickets/*.md` for ticket files
+2. Validates required frontmatter fields (id, title, story, status, priority, complexity)
+3. **Generates** nodes from ticket frontmatter (not just validates)
+4. **Generates** edges from `depends_on` arrays in ticket frontmatter
+5. Preserves story-level nodes (S-XXX-R/P/I pattern) that don't have ticket files
+6. Computes effective status (pending → ready) based on dependency completion
+
+This means deleting a ticket file removes the corresponding node from the DAG on next refresh. The YAML is now derived data, not authoritative data.
+
+### Additional Features from S-007
+
+**Claim Guards (prompt.ts):**
+- Read-only mode: `just prompt` previews without claiming
+- Explicit claim: `just prompt --accept` or `just prompt <task-id>`
+- Main repo guard: Cannot claim from main worktree
+- Single task guard: `.ralph/current-task` prevents double-claiming
+- Story filter: WORKTREE_STORY limits scope
+
+**Completion Guards (dag.ts):**
+- Output verification: Checks file/directory existence
+- Placeholder detection: Warns on suspiciously small files
+- Uncommitted changes warning: Uses `git status`
+- Force override: `--force` flag bypasses guards
+
+**Audit Logging (audit.ts):**
+- All state transitions logged to `logs/task-audit.jsonl`
+- Events: claimed, completed, reset, blocked attempts
+
+### File Structure Update
+
+The current tools directory structure:
+
+```
+tools/
+├── package.json      # Dependencies: js-yaml, proper-lockfile
+├── package-lock.json
+├── dag.ts            # DAG operations (status, refresh, complete, reset)
+├── prompt.ts         # Task claiming and prompt generation
+├── audit.ts          # Audit logging
+├── ralph.sh          # Autonomous agent loop
+└── types.ts          # TypeScript interfaces
+```
+
+---
+
 ## References
 
 - [js-yaml documentation](https://github.com/nodeca/js-yaml)
 - [proper-lockfile documentation](https://github.com/moxystudio/node-proper-lockfile)
 - [Node.js --experimental-strip-types](https://nodejs.org/api/typescript.html)
-- S-002 story: `docs/active/stories/S-002-dag-parsing.md`
-- Milestones: `docs/active/MILESTONES.md`
+- S-002 story: `docs/archive/phase-1-foundation/stories/S-002-dag-parsing.md`
+- S-007 story: `docs/active/stories/S-007-workflow-audit.md`

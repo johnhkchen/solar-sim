@@ -37,3 +37,10 @@ export {
 	formatCoordinatesDMS,
 	getParseErrorMessage
 } from './coordinates.js';
+
+// Re-export timezone functions
+export type { TimezoneResult } from './timezone.js';
+export { getTimezone, getTimezoneString } from './timezone.js';
+
+// Re-export geocoding functions
+export { geocodeAddress, getGeocodingErrorMessage, resetRateLimiter } from './geocoding.js';

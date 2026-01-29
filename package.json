@@ -27,7 +27,9 @@
 		"wrangler": "^3.99.0"
 	},
 	"dependencies": {
+		"@types/tz-lookup": "^6.1.2",
 		"geo-coordinates-parser": "^1.7.4",
-		"suncalc": "^1.9.0"
+		"suncalc": "^1.9.0",
+		"tz-lookup": "^6.1.25"
 	}
 }

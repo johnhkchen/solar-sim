@@ -32,3 +32,45 @@ export {
 	getYearlySummary,
 	getAnnualSummary
 } from './seasonal.js';
+
+// Shade types and presets
+export type {
+	ObstacleType,
+	Obstacle,
+	ObstaclePreset,
+	BlockingResult,
+	ShadeWindow,
+	DailyShadeAnalysis,
+	ShadeAnalysis
+} from './shade-types.js';
+
+export { OBSTACLE_PRESETS, getTransparency } from './shade-types.js';
+
+// Shade calculation functions
+export {
+	normalizeAngle,
+	angularDifference,
+	isBlocked,
+	calculateEffectiveSunlight
+} from './shade.js';
+
+// Shade-aware sun hours integration
+export type { DailySunDataWithShade } from './sun-hours-shade.js';
+
+export {
+	getDailySunHoursWithShade,
+	calculateDailyShadeAnalysis,
+	getSeasonalSummaryWithShade
+} from './sun-hours-shade.js';
+
+// Light category classification (shade-aware)
+export type { LightCategory, CategoryInfo, SunHoursForCategory } from './categories.js';
+
+export {
+	CATEGORIES,
+	classifySunHours,
+	getCategoryInfo,
+	getEffectiveCategoryInfo,
+	hasShadeDowngrade,
+	getComparativeCategoryInfo
+} from './categories.js';

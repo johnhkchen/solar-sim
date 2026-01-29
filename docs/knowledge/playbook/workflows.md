@@ -48,10 +48,16 @@ If your planning work requires creating new tickets, put them in `docs/active/ti
 
 After creating ticket files, add corresponding entries to the nodes section of task-graph.yaml and add edges for any dependencies. Run `just dag-refresh` to validate that your changes maintain DAG integrity. The refresh command checks for orphaned references, missing documents, and dependency cycles.
 
+## Automated Execution with Ralph Loop
+
+For batch processing multiple tickets, use the ralph loop instead of manual claim-complete cycles. The loop automates claiming tasks, executing them via Claude Code, and continuing until all tasks for a story are complete.
+
+Run `RALPH_ALLOW_MAIN=1 WORKTREE_STORY=S-XXX just ralph` from the main repo for single-agent serial execution. The loop handles task claiming, prompt generation, Claude invocation, and iteration automatically. See `docs/knowledge/playbook/ralph-loop.md` for detailed instructions.
+
 ## Parallel Development with Worktrees
 
 When multiple agents need to work simultaneously, they use git worktrees to avoid conflicts. Each agent operates in a separate worktree with its own branch, commits independently, and merges back to main via pull request.
 
 The main worktree owns the authoritative task-graph.yaml. Agents in linked worktrees should check task availability by looking at main rather than their local copy, do their implementation work, and submit a PR that includes the task status update. The PR merge serves as the coordination point that prevents conflicts.
 
-This workflow isn't implemented yet but will be available once the worktree commands are complete.
+Note: Multi-agent parallel execution is not yet verified. Use single-agent serial execution until concurrent operation is tested.

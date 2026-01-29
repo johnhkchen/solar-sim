@@ -73,3 +73,55 @@ Two concurrent loops works well for projects with two independent work streams. 
 ## Summary
 
 Concurrent ralph loops work by isolating each loop in its own worktree with its own story assignment. Setup requires creating worktrees, syncing to main, and verifying dependencies. The story-based partitioning prevents conflicts since each loop touches different files. PRs merge the completed work back to main where task-graph.yaml serves as the single source of truth.
+
+---
+
+## Updates from S-007 (2026-01-28)
+
+Several aspects of this document have been updated or superseded by S-007 workflow improvements:
+
+### Story Filter is Now Required
+
+The ralph.sh script now **requires** the WORKTREE_STORY environment variable. Running `just ralph` without a story filter produces an error:
+
+```
+Error: WORKTREE_STORY environment variable is required.
+```
+
+This mandatory filter prevents the race condition scenario where loops claim tasks from any story.
+
+### Main Repo Execution Blocked
+
+Running `just ralph` from the main worktree now fails with:
+
+```
+Error: Cannot run ralph loop from main repo.
+Use a worktree: `just worktree-new <name>`
+```
+
+This ensures loops always run in isolated environments.
+
+### Read-Only Task Preview
+
+The `just prompt` command is now read-only by default. It shows available tasks without claiming them. To claim a task, use:
+
+```bash
+just prompt --accept        # Claim next available task
+just prompt <task-id>       # Claim specific task
+```
+
+The ralph.sh script has been updated to use `just prompt --accept`.
+
+### Known Issues (from S-008 Audit)
+
+The concurrent model still has gaps being addressed in S-008:
+
+1. **Stale Tooling**: Existing worktrees may have outdated ralph.sh without the story filter requirement. Rebase onto main before running loops.
+
+2. **State Divergence**: Worktrees don't automatically sync task-graph.yaml from main. Agents should fetch and check main before claiming tasks.
+
+3. **Cross-Story Claiming**: The story filter applies to auto-selection but can be bypassed by specifying a task ID directly.
+
+4. **No Concurrent Test**: The multi-agent system has not been tested with simultaneous loops. S-008-04 will create a test procedure.
+
+See `docs/knowledge/research/multi-agent-audit.md` for the full audit findings.

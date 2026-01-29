@@ -77,7 +77,24 @@ export interface Frontmatter {
   depends_on?: string[];
   blocks?: string[];
   milestones?: string[];
+  milestone?: string;
   assignee?: string | null;
   created?: string;
   updated?: string;
+}
+
+// Ticket-specific frontmatter with required fields
+export interface TicketFrontmatter {
+  id: string;
+  title: string;
+  story: string;
+  status: TaskStatus;
+  priority: number;
+  complexity: Complexity;
+  depends_on?: string[];
+  output?: string;
+  claimed_at?: string;
+  claimed_by?: string;
+  completed_at?: string;
+  milestone?: string;
 }
