@@ -64,60 +64,66 @@ nodes:
     description: Create `src/lib/solar/slope.ts` with types for representing plot slope and functions for calculating effective sun angles on sloped terrain.
     priority: 1
     complexity: S
-    status: ready
+    status: complete
     assignee: null
     output: src/lib/solar/slope.ts
     path: docs/active/tickets/T-017-02-slope-types.md
+    completed_at: "2026-01-29T19:38:00.000Z"
   - id: T-017-03
     title: Implement shadow polygon calculation
     story: S-017
     description: Create `src/lib/solar/shadow-projection.ts` with functions to compute shadow polygons for each obstacle type given sun position and terrain slope.
     priority: 1
     complexity: M
-    status: pending
+    status: complete
     assignee: null
     output: src/lib/solar/shadow-projection.ts
     path: docs/active/tickets/T-017-03-shadow-polygons.md
+    completed_at: "2026-01-29T19:50:00.000Z"
   - id: T-017-04
     title: Add slope input to PlotEditor
     story: S-017
     description: Extend PlotEditor.svelte to include slope angle and direction inputs. Show a visual indicator of slope in the plan view.
     priority: 1
     complexity: S
-    status: pending
+    status: complete
     assignee: null
     output: src/lib/components/PlotEditor.svelte
     path: docs/active/tickets/T-017-04-slope-input-ui.md
+    completed_at: "2026-01-29T20:05:00.000Z"
   - id: T-017-05
     title: Build isometric view component
     story: S-017
     description: Create `src/lib/components/IsometricView.svelte` that renders the same plot data as PlotEditor but in an isometric projection showing the pseudo-3D scene.
     priority: 1
     complexity: L
-    status: pending
+    status: complete
     assignee: null
     output: src/lib/components/IsometricView.svelte
     path: docs/active/tickets/T-017-05-isometric-view.md
+    completed_at: "2026-01-29T20:45:00.000Z"
   - id: T-017-06
     title: Add time scrubber for shadow animation
     story: S-017
     description: Create `src/lib/components/TimeScrubber.svelte` that controls the time used for shadow calculations and integrates with the isometric view.
     priority: 1
     complexity: M
-    status: pending
+    status: complete
     assignee: null
     output: src/lib/components/TimeScrubber.svelte
     path: docs/active/tickets/T-017-06-time-scrubber.md
+    completed_at: "2026-01-29T21:15:00.000Z"
   - id: T-017-07
     title: Add view toggle and integrate components
     story: S-017
     description: Create `src/lib/components/PlotViewer.svelte` that wraps PlotEditor and IsometricView with a toggle between them, plus shared time controls for shadow visualization.
     priority: 1
     complexity: M
-    status: pending
+    status: complete
     assignee: null
     output: src/lib/components/PlotViewer.svelte
     path: docs/active/tickets/T-017-07-view-toggle-integration.md
+    completed_at: "2026-01-29T21:30:00.000Z"
 edges:
   - from: T-017-01
     to: T-017-02
@@ -140,10 +146,10 @@ meta:
   total_tasks: 7
   total_milestones: 11
   by_status:
-    ready: 1
-    pending: 5
+    ready: 0
+    pending: 0
     in_progress: 0
-    complete: 1
+    complete: 7
     blocked: 0
   by_priority: {}
   by_milestone: {}

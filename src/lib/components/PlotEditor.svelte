@@ -1,6 +1,8 @@
 <script lang="ts">
 	import type { Obstacle, ObstacleType, ObstaclePreset } from '$lib/solar/shade-types';
 	import { OBSTACLE_PRESETS } from '$lib/solar/shade-types';
+	import type { PlotSlope } from '$lib/solar/slope';
+	import { SLOPE_PRESETS, describeSlopeDirection } from '$lib/solar/slope';
 
 	/**
 	 * Extended obstacle type with x,y coordinates for the plot editor.
@@ -15,9 +17,11 @@
 	interface PlotEditorProps {
 		obstacles?: PlotObstacle[];
 		onchange?: (obstacles: PlotObstacle[]) => void;
+		slope?: PlotSlope;
+		onSlopeChange?: (slope: PlotSlope) => void;
 	}
 
-	let { obstacles = $bindable([]), onchange }: PlotEditorProps = $props();
+	let { obstacles = $bindable([]), onchange, slope = $bindable({ angle: 0, aspect: 180 }), onSlopeChange }: PlotEditorProps = $props();
 
 	// View state for pan and zoom
 	let scale = $state(10); // pixels per meter
@@ -304,6 +308,61 @@
 	}
 
 	/**
+	 * Updates the slope angle and notifies parent.
+	 */
+	function updateSlopeAngle(angle: number): void {
+		const newSlope = { ...slope, angle: Math.max(0, Math.min(30, angle)) };
+		slope = newSlope;
+		onSlopeChange?.(newSlope);
+	}
+
+	/**
+	 * Updates the slope aspect/direction and notifies parent.
+	 */
+	function updateSlopeAspect(aspect: number): void {
+		let normalizedAspect = aspect % 360;
+		if (normalizedAspect < 0) normalizedAspect += 360;
+		const newSlope = { ...slope, aspect: normalizedAspect };
+		slope = newSlope;
+		onSlopeChange?.(newSlope);
+	}
+
+	/**
+	 * Gets the CSS gradient for slope visualization based on slope direction.
+	 * The gradient is lighter on the uphill side and slightly darker downhill.
+	 */
+	const slopeGradientAngle = $derived(slope.aspect);
+	const slopeGradientIntensity = $derived(Math.min(0.15, slope.angle / 30 * 0.15));
+
+	/**
+	 * Calculates the arrow endpoint for slope direction indicator.
+	 * Arrow points downhill (in the direction of the aspect).
+	 */
+	const slopeArrow = $derived(() => {
+		// Convert aspect (compass bearing) to math angle for SVG
+		// Compass: 0=N, 90=E, 180=S, 270=W
+		// Math/SVG Y-flipped: 0=E, 90=N, 180=W, 270=S
+		const mathAngle = (90 - slope.aspect) * Math.PI / 180;
+		const arrowLength = 8; // meters in world coordinates
+		return {
+			x: Math.cos(mathAngle) * arrowLength,
+			y: Math.sin(mathAngle) * arrowLength
+		};
+	});
+
+	// Compass direction labels for the direction picker
+	const compassDirections = [
+		{ label: 'N', value: 0 },
+		{ label: 'NE', value: 45 },
+		{ label: 'E', value: 90 },
+		{ label: 'SE', value: 135 },
+		{ label: 'S', value: 180 },
+		{ label: 'SW', value: 225 },
+		{ label: 'W', value: 270 },
+		{ label: 'NW', value: 315 }
+	];
+
+	/**
 	 * Selects a placement mode from the palette.
 	 */
 	function selectPlacementMode(type: ObstacleType | null): void {
@@ -388,6 +447,44 @@
 		</div>
 	</div>
 
+	<div class="slope-controls">
+		<div class="slope-header">
+			<span class="slope-label">Terrain Slope</span>
+			<span class="slope-desc">{describeSlopeDirection(slope)}</span>
+		</div>
+		<div class="slope-inputs">
+			<div class="slope-input-group">
+				<label for="slope-angle">Angle:</label>
+				<input
+					id="slope-angle"
+					type="range"
+					min="0"
+					max="30"
+					step="1"
+					value={slope.angle}
+					oninput={(e) => updateSlopeAngle(parseInt((e.target as HTMLInputElement).value))}
+				/>
+				<span class="slope-value">{slope.angle}°</span>
+			</div>
+			<div class="slope-input-group">
+				<label for="slope-aspect">Faces:</label>
+				<div class="compass-picker">
+					{#each compassDirections as { label, value }}
+						<button
+							type="button"
+							class="compass-btn"
+							class:active={Math.abs(slope.aspect - value) < 22.5 || Math.abs(slope.aspect - value) > 337.5}
+							onclick={() => updateSlopeAspect(value)}
+							title={`Slope faces ${label}`}
+						>
+							{label}
+						</button>
+					{/each}
+				</div>
+			</div>
+		</div>
+	</div>
+
 	<div class="canvas-container" bind:this={containerElement}>
 		<!-- svelte-ignore a11y_no_noninteractive_tabindex a11y_no_noninteractive_element_interactions -->
 		<svg
@@ -414,6 +511,21 @@
 		>
 			<!-- Background -->
 			<rect x="0" y="0" {width} {height} fill="#fafaf9" class="grid-bg" />
+
+			<!-- Slope gradient overlay -->
+			{#if slope.angle >= 0.5}
+				<defs>
+					<linearGradient
+						id="slope-gradient"
+						gradientTransform="rotate({slopeGradientAngle + 180}, 0.5, 0.5)"
+					>
+						<stop offset="0%" stop-color="rgba(139, 69, 19, {slopeGradientIntensity})" />
+						<stop offset="50%" stop-color="rgba(139, 69, 19, 0)" />
+						<stop offset="100%" stop-color="rgba(255, 255, 200, {slopeGradientIntensity})" />
+					</linearGradient>
+				</defs>
+				<rect x="0" y="0" {width} {height} fill="url(#slope-gradient)" class="slope-overlay" />
+			{/if}
 
 			<!-- Grid in world coordinates -->
 			<g transform={worldTransform}>
@@ -522,6 +634,45 @@
 				>
 					You
 				</text>
+
+				<!-- Slope direction arrow (points downhill) -->
+				{#if slope.angle >= 0.5}
+					{@const arrow = slopeArrow()}
+					{@const headLen = 1.5}
+					{@const headAngle = Math.atan2(arrow.y, arrow.x)}
+					<g class="slope-arrow">
+						<line
+							x1="0"
+							y1="0"
+							x2={arrow.x}
+							y2={arrow.y}
+							stroke="#8b4513"
+							stroke-width={0.4}
+							stroke-dasharray="1 0.5"
+							stroke-opacity="0.6"
+						/>
+						<!-- Arrowhead -->
+						<polygon
+							points="{arrow.x},{arrow.y}
+								{arrow.x - headLen * Math.cos(headAngle - 0.4)},{arrow.y - headLen * Math.sin(headAngle - 0.4)}
+								{arrow.x - headLen * Math.cos(headAngle + 0.4)},{arrow.y - headLen * Math.sin(headAngle + 0.4)}"
+							fill="#8b4513"
+							fill-opacity="0.6"
+						/>
+						<!-- Label at arrow tip -->
+						<text
+							x={arrow.x * 1.15}
+							y={arrow.y * 1.15}
+							text-anchor="middle"
+							font-size={1}
+							fill="#8b4513"
+							transform="scale(1, -1)"
+							transform-origin="{arrow.x * 1.15} {arrow.y * 1.15}"
+						>
+							{slope.angle}° downhill
+						</text>
+					</g>
+				{/if}
 			</g>
 
 			<!-- Compass rose (fixed to screen coordinates) -->
@@ -684,6 +835,100 @@
 
 	.view-btn:hover {
 		background: #fafaf9;
+	}
+
+	.slope-controls {
+		display: flex;
+		flex-direction: column;
+		gap: 0.375rem;
+		padding: 0.5rem;
+		background: #fefce8;
+		border: 1px solid #fde047;
+		border-radius: 6px;
+	}
+
+	.slope-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.slope-label {
+		font-size: 0.875rem;
+		font-weight: 500;
+		color: #854d0e;
+	}
+
+	.slope-desc {
+		font-size: 0.8125rem;
+		color: #a16207;
+	}
+
+	.slope-inputs {
+		display: flex;
+		gap: 1rem;
+		align-items: center;
+		flex-wrap: wrap;
+	}
+
+	.slope-input-group {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.slope-input-group label {
+		font-size: 0.8125rem;
+		color: #78716c;
+		white-space: nowrap;
+	}
+
+	.slope-input-group input[type='range'] {
+		width: 80px;
+		accent-color: #a16207;
+	}
+
+	.slope-value {
+		font-size: 0.8125rem;
+		color: #854d0e;
+		min-width: 2rem;
+	}
+
+	.compass-picker {
+		display: flex;
+		gap: 0.125rem;
+	}
+
+	.compass-btn {
+		padding: 0.25rem 0.375rem;
+		background: white;
+		border: 1px solid #e5e7eb;
+		border-radius: 3px;
+		font-size: 0.75rem;
+		cursor: pointer;
+		transition: all 0.15s;
+		min-width: 1.75rem;
+	}
+
+	.compass-btn:hover {
+		background: #fef9c3;
+		border-color: #fde047;
+	}
+
+	.compass-btn.active {
+		background: #fde047;
+		border-color: #eab308;
+		color: #854d0e;
+		font-weight: 500;
+	}
+
+	.slope-overlay {
+		pointer-events: none;
+	}
+
+	.slope-arrow {
+		pointer-events: none;
 	}
 
 	.canvas-container {

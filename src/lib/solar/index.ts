@@ -74,3 +74,30 @@ export {
 	hasShadeDowngrade,
 	getComparativeCategoryInfo
 } from './categories.js';
+
+// Slope types and calculations
+export type { PlotSlope } from './slope.js';
+
+export {
+	SLOPE_PRESETS,
+	calculateSlopeIrradiance,
+	calculateEffectiveAltitude,
+	calculateSlopeBoostFactor,
+	getDailySunHoursWithSlope,
+	calculateDailyBoostPercent,
+	normalizeSlope,
+	describeSlopeDirection
+} from './slope.js';
+
+// Shadow projection for visualization
+export type { Point, ShadowPolygon, PlotObstacle } from './shadow-projection.js';
+
+export {
+	calculateShadowLength,
+	getShadowDirection,
+	adjustShadowLengthForSlope,
+	calculateShadowPolygon,
+	calculateAllShadows,
+	getShadowBounds,
+	isPointInShadow
+} from './shadow-projection.js';
