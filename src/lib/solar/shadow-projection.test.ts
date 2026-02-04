@@ -11,8 +11,11 @@ import {
 	calculateAllShadows,
 	getShadowBounds,
 	isPointInShadow,
+	calculateTreeShadowLatLng,
+	calculateAllTreeShadowsLatLng,
 	type PlotObstacle,
-	type Point
+	type Point,
+	type MapTreeConfig
 } from './shadow-projection.js';
 import type { SolarPosition } from './types.js';
 import type { PlotSlope } from './slope.js';
@@ -525,5 +528,141 @@ describe('time-based shadow changes', () => {
 		const morningCenterY = (morningBounds.minY + morningBounds.maxY) / 2;
 		const afternoonCenterY = (afternoonBounds.minY + afternoonBounds.maxY) / 2;
 		expect(Math.abs(morningCenterY - afternoonCenterY)).toBeGreaterThan(0.1);
+	});
+});
+
+// ============================================================================
+// Geographic coordinate shadow projection tests
+// ============================================================================
+
+// Helper to create a test tree in lat/lng coordinates
+function makeMapTree(overrides: Partial<MapTreeConfig> = {}): MapTreeConfig {
+	return {
+		id: 'tree-1',
+		lat: 37.7749, // San Francisco
+		lng: -122.4194,
+		type: 'deciduous-tree',
+		height: 12,
+		canopyWidth: 8,
+		...overrides
+	};
+}
+
+describe('calculateTreeShadowLatLng', () => {
+	it('returns null when sun is below horizon', () => {
+		const tree = makeMapTree();
+		const result = calculateTreeShadowLatLng(tree, makeSun(-5, 180));
+		expect(result).toBeNull();
+	});
+
+	it('returns shadow polygon with lat/lng vertices', () => {
+		const tree = makeMapTree();
+		const result = calculateTreeShadowLatLng(tree, makeSun(45, 180));
+
+		expect(result).not.toBeNull();
+		expect(result!.vertices.length).toBeGreaterThan(3);
+
+		// All vertices should have lat/lng properties
+		for (const v of result!.vertices) {
+			expect(typeof v.lat).toBe('number');
+			expect(typeof v.lng).toBe('number');
+		}
+	});
+
+	it('shadow vertices are near the tree position', () => {
+		const tree = makeMapTree({ lat: 40.0, lng: -100.0 });
+		const result = calculateTreeShadowLatLng(tree, makeSun(45, 180));
+
+		expect(result).not.toBeNull();
+
+		// All vertices should be within ~0.01 degrees (about 1km) of tree
+		// since a 12m tree at 45° casts a 12m shadow
+		for (const v of result!.vertices) {
+			expect(Math.abs(v.lat - tree.lat)).toBeLessThan(0.01);
+			expect(Math.abs(v.lng - tree.lng)).toBeLessThan(0.01);
+		}
+	});
+
+	it('shadow extends in direction opposite to sun azimuth', () => {
+		const tree = makeMapTree();
+
+		// Sun from south (azimuth 180) casts shadow north
+		const southSunShadow = calculateTreeShadowLatLng(tree, makeSun(30, 180));
+		// Sun from east (azimuth 90) casts shadow west
+		const eastSunShadow = calculateTreeShadowLatLng(tree, makeSun(30, 90));
+
+		expect(southSunShadow).not.toBeNull();
+		expect(eastSunShadow).not.toBeNull();
+
+		// Find average latitude of shadow vertices
+		const southAvgLat =
+			southSunShadow!.vertices.reduce((sum, v) => sum + v.lat, 0) /
+			southSunShadow!.vertices.length;
+		const eastAvgLng =
+			eastSunShadow!.vertices.reduce((sum, v) => sum + v.lng, 0) /
+			eastSunShadow!.vertices.length;
+
+		// South sun shadow should extend north (higher latitude than tree)
+		expect(southAvgLat).toBeGreaterThan(tree.lat);
+		// East sun shadow should extend west (lower longitude than tree)
+		expect(eastAvgLng).toBeLessThan(tree.lng);
+	});
+
+	it('evergreen and deciduous trees have different shade intensities', () => {
+		const deciduousTree = makeMapTree({ type: 'deciduous-tree' });
+		const evergreenTree = makeMapTree({ id: 'tree-2', type: 'evergreen-tree' });
+		const sun = makeSun(45, 180);
+
+		const deciduousShadow = calculateTreeShadowLatLng(deciduousTree, sun);
+		const evergreenShadow = calculateTreeShadowLatLng(evergreenTree, sun);
+
+		expect(deciduousShadow).not.toBeNull();
+		expect(evergreenShadow).not.toBeNull();
+
+		// Both should have partial transparency (less than 1)
+		expect(deciduousShadow!.shadeIntensity).toBeLessThan(1);
+		expect(evergreenShadow!.shadeIntensity).toBeLessThan(1);
+	});
+});
+
+describe('calculateAllTreeShadowsLatLng', () => {
+	it('returns empty array when sun is below horizon', () => {
+		const trees = [makeMapTree(), makeMapTree({ id: 'tree-2', lat: 37.78 })];
+		const result = calculateAllTreeShadowsLatLng(trees, makeSun(-5, 180));
+		expect(result).toHaveLength(0);
+	});
+
+	it('returns shadow for each tree', () => {
+		const trees = [
+			makeMapTree({ id: 'tree-1' }),
+			makeMapTree({ id: 'tree-2', lat: 37.78 }),
+			makeMapTree({ id: 'tree-3', lat: 37.76 })
+		];
+		const result = calculateAllTreeShadowsLatLng(trees, makeSun(45, 180));
+
+		expect(result).toHaveLength(3);
+		expect(result.map((s) => s.obstacleId)).toContain('tree-1');
+		expect(result.map((s) => s.obstacleId)).toContain('tree-2');
+		expect(result.map((s) => s.obstacleId)).toContain('tree-3');
+	});
+
+	it('trees at different locations have shadows at different positions', () => {
+		const trees = [
+			makeMapTree({ id: 'tree-1', lat: 37.77, lng: -122.42 }),
+			makeMapTree({ id: 'tree-2', lat: 37.78, lng: -122.41 })
+		];
+		const result = calculateAllTreeShadowsLatLng(trees, makeSun(45, 180));
+
+		expect(result).toHaveLength(2);
+
+		const shadow1 = result.find((s) => s.obstacleId === 'tree-1')!;
+		const shadow2 = result.find((s) => s.obstacleId === 'tree-2')!;
+
+		// Shadow centers should be near their respective trees
+		const avgLat1 = shadow1.vertices.reduce((sum, v) => sum + v.lat, 0) / shadow1.vertices.length;
+		const avgLat2 = shadow2.vertices.reduce((sum, v) => sum + v.lat, 0) / shadow2.vertices.length;
+
+		// Shadow 2 should be at higher latitude since tree 2 is at higher latitude
+		expect(avgLat2).toBeGreaterThan(avgLat1);
 	});
 });

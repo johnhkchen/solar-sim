@@ -52,3 +52,34 @@ export { PLANTS, getPlantById, getPlantsByCategory, getPlantsForSunHours } from 
 
 // Recommendation engine
 export { getRecommendations, createRecommendationInput } from './recommendations.js';
+
+// Horticultural integration (tree-aware recommendations)
+export type {
+	TreeAwareRecommendationInput,
+	TreeAwareRecommendationResult
+} from './horticultural-integration.js';
+
+export {
+	createTreeAwareInput,
+	generateTreeShadeNotes,
+	generateShadeImpactSummary,
+	getTreeAwareRecommendations,
+	getRecommendationsFromSunHours,
+	getPlantingGuidance,
+	assessTreeManagementBenefit
+} from './horticultural-integration.js';
+
+// Plant query API (zone-aware plant selection)
+export type {
+	PlantFilters,
+	PlantQuery,
+	PlantWithAttributes
+} from './query.js';
+
+export {
+	queryPlants,
+	getPlantsForLightCategory,
+	searchPlantsForZone,
+	formatLightCategoryLabel,
+	FILTER_OPTIONS
+} from './query.js';

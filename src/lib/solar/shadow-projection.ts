@@ -691,3 +691,148 @@ export function isPointInShadow(point: Point, shadow: ShadowPolygon): boolean {
 
 	return inside;
 }
+
+// ============================================================================
+// Geographic coordinate shadow projection
+//
+// These functions project shadows onto a map using lat/lng coordinates rather
+// than meters. This is used by the MapPicker component to render tree shadows
+// on top of the ShadeMap terrain/building shadows.
+// ============================================================================
+
+/**
+ * A point in geographic coordinates.
+ */
+export interface LatLng {
+	lat: number;
+	lng: number;
+}
+
+/**
+ * A shadow polygon using geographic coordinates.
+ * Used for rendering shadows on Leaflet maps.
+ */
+export interface LatLngShadowPolygon {
+	obstacleId: string;
+	obstacleType: ObstacleType;
+	vertices: LatLng[];
+	shadeIntensity: number;
+}
+
+/**
+ * Meters per degree of latitude (approximately constant).
+ * Earth's circumference / 360 degrees.
+ */
+const METERS_PER_DEGREE_LAT = 111320;
+
+/**
+ * Converts a meter offset to a latitude offset.
+ * Latitude degrees change at a nearly constant rate regardless of position.
+ */
+function metersToLatOffset(meters: number): number {
+	return meters / METERS_PER_DEGREE_LAT;
+}
+
+/**
+ * Converts a meter offset to a longitude offset at a given latitude.
+ * Longitude degrees shrink as you move toward the poles because meridians
+ * converge. At the equator, 1 degree ≈ 111km; at 60° latitude, 1 degree ≈ 55km.
+ */
+function metersToLngOffset(meters: number, latitude: number): number {
+	const latRad = toRadians(latitude);
+	const metersPerDegreeLng = METERS_PER_DEGREE_LAT * Math.cos(latRad);
+	return meters / metersPerDegreeLng;
+}
+
+/**
+ * Converts a point in meters (relative to origin) to a lat/lng coordinate.
+ * The x axis is east (+x = east), y axis is north (+y = north).
+ */
+function metersToLatLng(point: Point, origin: LatLng): LatLng {
+	return {
+		lat: origin.lat + metersToLatOffset(point.y),
+		lng: origin.lng + metersToLngOffset(point.x, origin.lat)
+	};
+}
+
+/**
+ * Tree configuration for map-based shadow calculation.
+ * This mirrors the MapTree interface from MapPicker.
+ */
+export interface MapTreeConfig {
+	id: string;
+	lat: number;
+	lng: number;
+	type: 'deciduous-tree' | 'evergreen-tree';
+	height: number;
+	canopyWidth: number;
+}
+
+/**
+ * Calculates a tree shadow polygon in geographic coordinates.
+ *
+ * This function projects a tree's shadow onto the map using lat/lng coordinates.
+ * It works by first calculating the shadow in meters (using the existing shadow
+ * projection math) then converting to geographic coordinates.
+ *
+ * @param tree - Tree configuration with lat/lng position and dimensions
+ * @param sun - Current sun position (altitude and azimuth)
+ * @returns Shadow polygon in lat/lng coordinates, or null if sun is below horizon
+ */
+export function calculateTreeShadowLatLng(
+	tree: MapTreeConfig,
+	sun: SolarPosition
+): LatLngShadowPolygon | null {
+	if (sun.altitude <= 0) return null;
+
+	// Create a PlotObstacle at origin (0,0) for the shadow calculation
+	const obstacleAtOrigin: PlotObstacle = {
+		id: tree.id,
+		type: tree.type,
+		label: tree.type === 'evergreen-tree' ? 'Evergreen tree' : 'Deciduous tree',
+		height: tree.height,
+		width: tree.canopyWidth,
+		distance: 0,
+		direction: 0,
+		x: 0,
+		y: 0
+	};
+
+	// Calculate shadow in meters relative to (0,0)
+	const shadowInMeters = calculateTreeShadow(obstacleAtOrigin, sun, undefined);
+	if (!shadowInMeters) return null;
+
+	// Convert shadow vertices from meters to lat/lng
+	const treeOrigin: LatLng = { lat: tree.lat, lng: tree.lng };
+	const vertices: LatLng[] = shadowInMeters.vertices.map((v) => metersToLatLng(v, treeOrigin));
+
+	return {
+		obstacleId: shadowInMeters.obstacleId,
+		obstacleType: shadowInMeters.obstacleType,
+		vertices,
+		shadeIntensity: shadowInMeters.shadeIntensity
+	};
+}
+
+/**
+ * Calculates shadow polygons for all trees in geographic coordinates.
+ *
+ * @param trees - Array of trees with lat/lng positions
+ * @param sun - Current sun position
+ * @returns Array of shadow polygons in lat/lng coordinates
+ */
+export function calculateAllTreeShadowsLatLng(
+	trees: MapTreeConfig[],
+	sun: SolarPosition
+): LatLngShadowPolygon[] {
+	if (sun.altitude <= 0) return [];
+
+	const shadows: LatLngShadowPolygon[] = [];
+	for (const tree of trees) {
+		const shadow = calculateTreeShadowLatLng(tree, sun);
+		if (shadow) {
+			shadows.push(shadow);
+		}
+	}
+	return shadows;
+}

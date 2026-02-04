@@ -4,9 +4,12 @@
 		getDailySunHoursWithShade,
 		getYearlySummary,
 		getSeasonalSummaryWithShade,
+		calculateCombinedSunHoursSync,
 		type Coordinates,
 		type DailySunData,
-		type Obstacle
+		type Obstacle,
+		type MapTreeConfig,
+		type CombinedSunHoursResult
 	} from '$lib/solar';
 	import {
 		SunDataCard,
@@ -16,9 +19,42 @@
 		SeasonalLightChart,
 		TemperatureChart,
 		PlotViewer,
+		MapPicker,
+		SunHoursDisplay,
+		GardeningGuidance,
+		PhaseIndicator,
+		PhasePanel,
+		BottomSheet,
+		PeriodSelector,
+		SpotInspector,
+		ZoneEditor,
+		ZoneList,
+		PlantSelector,
+		PlanCanvas,
+		ViewToggle,
+		ContinuePlanDialog,
+		ClearPlanButton,
 		type MonthlySunData,
-		type PlotObstacle
+		type PlotObstacle,
+		type MapTree,
+		type ObservationPoint,
+		type Phase,
+		type AnalysisPeriod,
+		type InspectedSpot,
+		type Zone,
+		type PlacedPlant,
+		type ViewMode,
+		type ShadeMapInterface
 	} from '$lib/components';
+	import {
+		loadPlanState,
+		savePlanState,
+		clearPlanState,
+		createDebouncedSave,
+		DEFAULT_PREFERENCES,
+		type StoredPlanState,
+		type PlanPreferences
+	} from '$lib/storage';
 	import type { PlotSlope } from '$lib/solar/slope';
 	import {
 		getFrostDates,
@@ -41,10 +77,13 @@
 		type ClimateData,
 		type MonthlyAverages,
 		type KoppenClassification,
-		type CombinedOutlook
+		type CombinedOutlook,
+		dateToDayOfYear
 	} from '$lib/climate';
-	import { getRecommendations, createRecommendationInput } from '$lib/plants';
+	import { getRecommendations, createRecommendationInput, getPlantById } from '$lib/plants';
+	import { generatePlanPdf, capturePlanImage, type PdfExportData } from '$lib/export';
 	import type { PageData } from './$types';
+	import { browser } from '$app/environment';
 
 	const { data }: { data: PageData } = $props();
 
@@ -59,78 +98,356 @@
 	const frostDates: FrostDates = $derived(getFrostDates(coords));
 	const hardinessZone: HardinessZone = $derived(getHardinessZone(coords));
 
+	// Phase navigation state
+	let currentPhase = $state<Phase>('site');
+	let completedPhases = $state<Phase[]>([]);
+	let isMobile = $state(false);
+	let bottomSheetExpanded = $state(false);
+
+	// Analysis phase state
+	let analysisPeriod = $state<AnalysisPeriod>({
+		preset: 'growing-season',
+		startDoy: 91, // April 1
+		endDoy: 304, // October 31
+		label: 'Growing Season'
+	});
+	let inspectedSpot = $state<InspectedSpot | null>(null);
+
+	// Plants phase state - zones
+	let zones = $state<Zone[]>([]);
+	let selectedZoneId = $state<string | null>(null);
+	let zoneDrawingMode = $state(false);
+	let mapRef = $state<L.Map | null>(null);
+	let zoneEditorRef: ZoneEditor | null = null;
+
+	// View mode state (map vs plan)
+	let viewMode = $state<ViewMode>('map');
+
+	// PDF export state
+	let isExporting = $state(false);
+	let planCanvasRef: SVGSVGElement | null = null;
+
 	// Plot viewer state for obstacles and slope
 	let obstacles = $state<PlotObstacle[]>([]);
 	let slope = $state<PlotSlope>({ angle: 0, aspect: 180 });
 
-	// LocalStorage persistence for plot data. The isLoaded flag prevents the save
-	// effect from triggering during initial load, which would overwrite stored data
-	// with empty defaults before the load completes.
-	let isLoaded = $state(false);
-	let saveTimeout: ReturnType<typeof setTimeout> | null = null;
+	// Garden planner state for MapPicker features
+	let plannerTrees = $state<MapTree[]>([]);
+	let observationPoint = $state<ObservationPoint | undefined>(undefined);
+	let shadeMapInterface = $state<ShadeMapInterface | null>(null);
 
-	// Generate localStorage key using rounded coordinates (2 decimal places gives
-	// approximately 1km precision, grouping nearby locations together)
-	function getStorageKey(): string {
-		return `solar-sim:plot:${latitude.toFixed(2)}:${longitude.toFixed(2)}`;
+	// User preferences for plant filtering
+	let preferences = $state<PlanPreferences>({ ...DEFAULT_PREFERENCES });
+
+	// Plan restore dialog state
+	let pendingPlanState = $state<StoredPlanState | null>(null);
+	let showRestoreDialog = $state(false);
+
+	// Convert MapTree to MapTreeConfig for sun-hours calculation
+	const plannerTreeConfigs = $derived<MapTreeConfig[]>(
+		plannerTrees.map((t) => ({
+			id: t.id,
+			lat: t.lat,
+			lng: t.lng,
+			type: t.type,
+			height: t.height,
+			canopyWidth: t.canopyWidth
+		}))
+	);
+
+	// Calculate combined sun hours at the observation point for gardening guidance.
+	const plannerSunHours = $derived.by<CombinedSunHoursResult | null>(() => {
+		if (!observationPoint) return null;
+		const obsLatLng = { lat: observationPoint.lat, lng: observationPoint.lng };
+		return calculateCombinedSunHoursSync(obsLatLng, plannerTreeConfigs, coords, new Date());
+	});
+
+	// Phase navigation helpers
+	const PHASE_ORDER: Phase[] = ['site', 'analysis', 'plants', 'plan'];
+
+	function getPhaseIndex(phase: Phase): number {
+		return PHASE_ORDER.indexOf(phase);
 	}
 
-	// Load saved plot data on mount
-	$effect(() => {
-		if (typeof window === 'undefined') return;
-		const key = getStorageKey();
-		const stored = localStorage.getItem(key);
-		if (stored) {
-			try {
-				const data = JSON.parse(stored) as {
-					obstacles: PlotObstacle[];
-					slope: PlotSlope;
-					savedAt: string;
-				};
-				obstacles = data.obstacles ?? [];
-				slope = data.slope ?? { angle: 0, aspect: 180 };
-			} catch {
-				// Invalid JSON in storage, start fresh
+	function canAdvanceToPhase(phase: Phase): boolean {
+		const targetIndex = getPhaseIndex(phase);
+		const currentIndex = getPhaseIndex(currentPhase);
+
+		// Can always go back
+		if (targetIndex <= currentIndex) return true;
+
+		// Can only advance one step at a time
+		if (targetIndex > currentIndex + 1) {
+			// Check if all intermediate phases would be completed
+			for (let i = currentIndex; i < targetIndex; i++) {
+				const intermediatePhase = PHASE_ORDER[i];
+				if (!completedPhases.includes(intermediatePhase) && intermediatePhase !== currentPhase) {
+					return false;
+				}
 			}
 		}
-		isLoaded = true;
+
+		// Validate forward navigation requirements
+		if (phase === 'analysis') {
+			// Can go to analysis once site is set up (always allowed)
+			return true;
+		}
+		if (phase === 'plants') {
+			// Can advance to plants from analysis (no prerequisites)
+			return currentPhase === 'analysis' || completedPhases.includes('analysis');
+		}
+		if (phase === 'plan') {
+			// Can advance to plan from plants (no prerequisites for now)
+			return currentPhase === 'plants' || completedPhases.includes('plants');
+		}
+		return false;
+	}
+
+	function goToPhase(phase: Phase) {
+		if (!canAdvanceToPhase(phase)) return;
+
+		// Mark current phase as completed when moving forward
+		const currentIndex = getPhaseIndex(currentPhase);
+		const targetIndex = getPhaseIndex(phase);
+
+		if (targetIndex > currentIndex && !completedPhases.includes(currentPhase)) {
+			completedPhases = [...completedPhases, currentPhase];
+		}
+
+		currentPhase = phase;
+
+		// Update URL hash (use native API, wrapped in try-catch for safety during hydration)
+		if (browser) {
+			try {
+				window.history.replaceState(window.history.state, '', `#${phase}`);
+			} catch {
+				// Ignore errors during hydration
+			}
+		}
+	}
+
+	function goNext() {
+		const currentIndex = getPhaseIndex(currentPhase);
+		if (currentIndex < PHASE_ORDER.length - 1) {
+			goToPhase(PHASE_ORDER[currentIndex + 1]);
+		}
+	}
+
+	function goBack() {
+		const currentIndex = getPhaseIndex(currentPhase);
+		if (currentIndex > 0) {
+			goToPhase(PHASE_ORDER[currentIndex - 1]);
+		}
+	}
+
+	// Next button labels by phase
+	const nextLabels: Record<Phase, string> = {
+		site: 'Confirm Site',
+		analysis: 'Select Plants',
+		plants: 'Review Plan',
+		plan: 'Export'
+	};
+
+	// Pre-computed navigability for each phase (ensures reactivity in child components)
+	const navigablePhases = $derived<Record<Phase, boolean>>({
+		site: canAdvanceToPhase('site'),
+		analysis: canAdvanceToPhase('analysis'),
+		plants: canAdvanceToPhase('plants'),
+		plan: canAdvanceToPhase('plan')
 	});
 
-	// Save plot data on changes with 500ms debounce to batch rapid drag updates
-	$effect(() => {
-		if (!isLoaded) return;
+	// Derived value for whether we can advance to the next phase (ensures reactivity)
+	const canGoNextPhase = $derived.by(() => {
+		const nextPhase = PHASE_ORDER[getPhaseIndex(currentPhase) + 1];
+		if (!nextPhase) return false;
+		return canAdvanceToPhase(nextPhase);
+	});
 
-		// Capture current values for the debounced save
-		const toSave = {
+	// Plan state persistence
+	let isLoaded = $state(false);
+	const debouncedSave = browser ? createDebouncedSave(500) : null;
+
+	// Build current plan state for saving
+	function buildPlanState(): StoredPlanState {
+		// Convert DOY format to ISO date strings for storage
+		const startDoy = analysisPeriod?.startDoy ?? 91; // April 1
+		const endDoy = analysisPeriod?.endDoy ?? 304; // October 31
+		const startDate = dayOfYearToDate(startDoy);
+		const endDate = dayOfYearToDate(endDoy);
+
+		// Map preset to storage type
+		const typeMap: Record<string, 'growing-season' | 'full-year' | 'custom'> = {
+			'growing-season': 'growing-season',
+			'full-year': 'full-year'
+		};
+		const storageType = typeMap[analysisPeriod?.preset ?? 'custom'] ?? 'custom';
+
+		return {
+			version: 1,
+			location: {
+				lat: latitude,
+				lng: longitude,
+				name: name || ''
+			},
+			zones,
+			currentPhase,
+			completedPhases,
+			analysisPeriod: {
+				type: storageType,
+				startDate: startDate.toISOString(),
+				endDate: endDate.toISOString()
+			},
+			preferences,
 			obstacles,
 			slope,
-			savedAt: new Date().toISOString()
+			lastModified: new Date().toISOString()
+		};
+	}
+
+	// Restore state from stored plan
+	function restorePlanState(state: StoredPlanState) {
+		zones = state.zones;
+		currentPhase = state.currentPhase;
+		completedPhases = state.completedPhases;
+
+		// Convert ISO date strings back to DOY format
+		const startDate = new Date(state.analysisPeriod.startDate);
+		const endDate = new Date(state.analysisPeriod.endDate);
+		const startDoy = dateToDayOfYear(startDate);
+		const endDoy = dateToDayOfYear(endDate);
+
+		// Map storage type to preset
+		const presetMap: Record<string, AnalysisPeriod['preset']> = {
+			'growing-season': 'growing-season',
+			'full-year': 'full-year',
+			'custom': 'custom'
+		};
+		const preset = presetMap[state.analysisPeriod.type] ?? 'custom';
+
+		// Generate label based on preset
+		const labelMap: Record<string, string> = {
+			'growing-season': 'Growing Season',
+			'full-year': 'Full Year',
+			'custom': 'Custom Period'
 		};
 
-		if (saveTimeout) clearTimeout(saveTimeout);
-		saveTimeout = setTimeout(() => {
-			if (typeof window === 'undefined') return;
-			const key = getStorageKey();
-			localStorage.setItem(key, JSON.stringify(toSave));
-		}, 500);
+		analysisPeriod = {
+			preset,
+			startDoy,
+			endDoy,
+			label: labelMap[preset] ?? 'Custom Period'
+		};
+
+		preferences = state.preferences;
+		obstacles = state.obstacles;
+		slope = state.slope;
+	}
+
+	// Clear plan and start fresh
+	function handleClearPlan() {
+		clearPlanState(latitude, longitude);
+		zones = [];
+		completedPhases = [];
+		currentPhase = 'site';
+		preferences = { ...DEFAULT_PREFERENCES };
+		analysisPeriod = {
+			startDate: new Date(new Date().getFullYear(), 3, 1),
+			endDate: new Date(new Date().getFullYear(), 9, 31)
+		};
+	}
+
+	// Handle continue from dialog
+	function handleContinuePlan() {
+		if (pendingPlanState) {
+			restorePlanState(pendingPlanState);
+		}
+		pendingPlanState = null;
+		showRestoreDialog = false;
+		isLoaded = true;
+	}
+
+	// Handle start fresh from dialog
+	function handleStartFresh() {
+		pendingPlanState = null;
+		showRestoreDialog = false;
+		clearPlanState(latitude, longitude);
+		isLoaded = true;
+	}
+
+	// Load saved state on mount
+	$effect(() => {
+		if (!browser) return;
+
+		// Check for phase in URL hash
+		const hash = window.location.hash.slice(1) as Phase;
+		if (PHASE_ORDER.includes(hash)) {
+			currentPhase = hash;
+		}
+
+		// Check for existing plan state
+		const storedPlan = loadPlanState(latitude, longitude);
+		if (storedPlan && storedPlan.zones.length > 0) {
+			// Show restore dialog if there's meaningful saved data
+			pendingPlanState = storedPlan;
+			showRestoreDialog = true;
+			// Apply URL hash phase if present
+			if (hash && PHASE_ORDER.includes(hash)) {
+				pendingPlanState = { ...storedPlan, currentPhase: hash };
+			}
+		} else if (storedPlan) {
+			// No zones but some state exists - restore silently
+			restorePlanState(storedPlan);
+			if (hash && PHASE_ORDER.includes(hash)) {
+				currentPhase = hash;
+			}
+			isLoaded = true;
+		} else {
+			// No saved state, start fresh
+			isLoaded = true;
+		}
+
+		// Check for mobile viewport
+		const checkMobile = () => {
+			isMobile = window.innerWidth <= 768;
+		};
+		checkMobile();
+		window.addEventListener('resize', checkMobile);
+
+		// Listen for hash changes
+		const handleHashChange = () => {
+			const newHash = window.location.hash.slice(1) as Phase;
+			if (PHASE_ORDER.includes(newHash) && newHash !== currentPhase) {
+				goToPhase(newHash);
+			}
+		};
+		window.addEventListener('hashchange', handleHashChange);
+
+		return () => {
+			window.removeEventListener('resize', checkMobile);
+			window.removeEventListener('hashchange', handleHashChange);
+			debouncedSave?.cancel();
+		};
 	});
 
-	// Calculate shade-adjusted sun hours when obstacles are present. The derived
-	// value recomputes whenever obstacles change, giving users immediate feedback
-	// on how their garden layout affects available sunlight.
+	// Auto-save state on changes (debounced)
+	$effect(() => {
+		if (!isLoaded || !browser || !debouncedSave) return;
+
+		// Track dependencies for auto-save
+		const _ = [zones, currentPhase, completedPhases, analysisPeriod, preferences, obstacles, slope];
+
+		debouncedSave.save(buildPlanState());
+	});
+
+	// Calculate shade-adjusted sun hours when obstacles are present
 	const shadeAdjustedSunData = $derived.by(() => {
 		if (obstacles.length === 0) {
 			return null;
 		}
-		// PlotObstacle extends Obstacle so we can pass it directly
 		return getDailySunHoursWithShade(coords, new Date(), obstacles as Obstacle[]);
 	});
 
-	// Effective sun hours uses shade-adjusted value when obstacles exist,
-	// otherwise falls back to theoretical sun hours
-	const effectiveSunHours = $derived(
-		shadeAdjustedSunData?.effectiveHours ?? sunData.sunHours
-	);
+	const effectiveSunHours = $derived(shadeAdjustedSunData?.effectiveHours ?? sunData.sunHours);
 
 	// Enhanced climate data state (async)
 	let enhancedClimateLoading = $state(true);
@@ -139,30 +456,22 @@
 	let koppenClass = $state<KoppenClassification | null>(null);
 	let seasonalOutlook = $state<CombinedOutlook | null>(null);
 	let enhancedFrostDates = $state<FrostDates | null>(null);
-	let showOutlookDetails = $state(false);
 
-	// Fetch enhanced climate data from Open-Meteo
 	async function loadEnhancedClimate() {
 		try {
 			enhancedClimateLoading = true;
 			enhancedClimateError = null;
 
-			// Fetch historical temperatures and outlook in parallel
 			const [temps, outlook] = await Promise.all([
 				fetchHistoricalTemperatures(coords, 30),
 				getCompleteOutlook(coords)
 			]);
 
-			// Calculate derived data
 			monthlyTemps = calculateMonthlyAverages(temps);
 			enhancedFrostDates = calculateFrostDatesFromHistory(temps, latitude);
 			seasonalOutlook = outlook;
 
-			// Calculate Köppen classification from monthly data
-			// Need to estimate monthly precipitation - use placeholder for now since
-			// Open-Meteo archive doesn't include precip in our query
-			// TODO: Add precipitation to API query for accurate Köppen classification
-			const precipPlaceholder = [80, 70, 60, 40, 20, 5, 2, 5, 15, 40, 60, 80]; // Typical Mediterranean pattern
+			const precipPlaceholder = [80, 70, 60, 40, 20, 5, 2, 5, 15, 40, 60, 80];
 			koppenClass = classifyKoppen({
 				latitude,
 				temps: monthlyTemps.avgTemps,
@@ -175,19 +484,14 @@
 		}
 	}
 
-	// Load enhanced climate data on mount
 	$effect(() => {
 		loadEnhancedClimate();
 	});
 
-	// Use enhanced frost dates if available, otherwise fall back to embedded tables
 	const activeFrostDates: FrostDates = $derived(enhancedFrostDates ?? frostDates);
 
-	// Build growing season data for the timeline component
 	const growingSeason: GrowingSeason = $derived.by(() => {
 		const typicalLength = calculateGrowingSeasonLength(activeFrostDates);
-
-		// Calculate short and long season lengths from frost date variance
 		const shortLength = Math.max(
 			0,
 			activeFrostDates.firstFallFrost.early - activeFrostDates.lastSpringFrost.late
@@ -214,13 +518,11 @@
 		};
 	});
 
-	// Format frost dates for display
 	function formatFrostDate(dayOfYear: number): string {
 		const date = dayOfYearToDate(dayOfYear);
 		return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 	}
 
-	// Build climate data for the recommendation engine
 	const climateData: ClimateData = $derived({
 		frostDates: activeFrostDates,
 		hardinessZone,
@@ -228,10 +530,6 @@
 		fetchedAt: new Date()
 	});
 
-	// Calculate monthly sun hours for the seasonal light chart. When obstacles
-	// are present, this computes shade-adjusted effective hours for each month
-	// using getSeasonalSummaryWithShade, giving users insight into how their
-	// garden's light conditions vary seasonally with their specific obstacles.
 	const monthlyData: MonthlySunData[] = $derived.by(() => {
 		const year = new Date().getFullYear();
 		const yearSummaries = getYearlySummary(coords, year);
@@ -240,18 +538,12 @@
 			const month = index + 1;
 			const theoreticalHours = summary.averageSunHours;
 
-			// When no obstacles exist, effective hours match theoretical
 			if (obstacles.length === 0) {
-				return {
-					month,
-					theoreticalHours,
-					effectiveHours: theoreticalHours
-				};
+				return { month, theoreticalHours, effectiveHours: theoreticalHours };
 			}
 
-			// Calculate shade-adjusted effective hours for this month
 			const startDate = new Date(year, index, 1);
-			const endDate = new Date(year, index + 1, 0); // Last day of month
+			const endDate = new Date(year, index + 1, 0);
 			const shadeAnalysis = getSeasonalSummaryWithShade(
 				coords,
 				startDate,
@@ -267,656 +559,1040 @@
 		});
 	});
 
-	// Generate plant recommendations based on effective sun hours and climate.
-	// When obstacles are present, effectiveSunHours reflects shade-adjusted values,
-	// producing recommendations tailored to the user's actual garden conditions.
 	const recommendations = $derived.by(() => {
-		const input = createRecommendationInput(
-			effectiveSunHours,
-			climateData,
-			sunData.sunHours // theoretical hours for comparison
-		);
+		const input = createRecommendationInput(effectiveSunHours, climateData, sunData.sunHours);
 		return getRecommendations(input);
 	});
 
-	// Helper to get color class for outlook categories
-	function getOutlookColorClass(type: string): string {
-		switch (type) {
-			case 'Above':
-				return 'outlook-warm';
-			case 'Below':
-				return 'outlook-cool';
-			case 'Normal':
-				return 'outlook-normal';
-			default:
-				return 'outlook-neutral';
+	// PDF export handler
+	async function handleExportPdf() {
+		if (isExporting) return;
+
+		isExporting = true;
+		try {
+			// Capture plan canvas image if available
+			let planImageDataUrl: string | undefined;
+			if (planCanvasRef) {
+				planImageDataUrl = await capturePlanImage(planCanvasRef);
+			}
+
+			const exportData: PdfExportData = {
+				location: {
+					lat: latitude,
+					lng: longitude,
+					name: name || `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`
+				},
+				analysisPeriod: {
+					start: dayOfYearToDate(analysisPeriod.startDoy),
+					end: dayOfYearToDate(analysisPeriod.endDoy)
+				},
+				zones,
+				planImageDataUrl,
+				generatedAt: new Date(),
+				hardinessZone: `${hardinessZone.zone}${hardinessZone.subzone || ''}`,
+				treeCount: plannerTrees.length
+			};
+
+			await generatePlanPdf(exportData);
+		} catch (error) {
+			console.error('PDF export failed:', error);
+		} finally {
+			isExporting = false;
 		}
 	}
 </script>
 
-<main>
-	<h1>Solar Results</h1>
+<svelte:head>
+	<title>Garden Plan - {name || 'Results'}</title>
+</svelte:head>
 
-	<section class="location-info">
-		<h2>Location</h2>
-		{#if name}
-			<p class="location-name">{name}</p>
-		{/if}
-		<p>
-			Coordinates: {latitude.toFixed(4)}, {longitude.toFixed(4)}
-			<br />Timezone: {timezone}
-		</p>
-	</section>
+{#if showRestoreDialog && pendingPlanState}
+	<ContinuePlanDialog
+		planState={pendingPlanState}
+		oncontinue={handleContinuePlan}
+		onstartfresh={handleStartFresh}
+	/>
+{/if}
 
-	<section class="sun-data">
-		<SunDataCard data={sunData} {timezone} />
-	</section>
+<div class="plan-layout" class:mobile={isMobile}>
+	<!-- Phase indicator at top -->
+	<header class="layout-header">
+		<PhaseIndicator
+			{currentPhase}
+			{completedPhases}
+			onPhaseClick={goToPhase}
+			{navigablePhases}
+		/>
+	</header>
 
-	<section class="plot-section">
-		<h2>Your Garden Plot</h2>
-		<p class="plot-description">
-			Place obstacles like buildings, trees, and fences to see how shadows affect your garden throughout the day. The 3D view shows shadow patterns at any time you choose.
-		</p>
-		<div class="plot-viewer-container">
-			<PlotViewer
-				{latitude}
-				{longitude}
-				date={new Date()}
-				bind:obstacles
-				bind:slope
-			/>
-		</div>
-	</section>
+	<!-- Main content area with map and panel -->
+	<div class="layout-main">
+		<!-- Map canvas (always visible) -->
+		<div class="map-canvas">
+			<!-- View toggle for plan phase -->
+			{#if currentPhase === 'plan' || (currentPhase === 'plants' && zones.length > 0)}
+				<div class="view-toggle-container">
+					<ViewToggle bind:mode={viewMode} />
+				</div>
+			{/if}
 
-	<section class="climate-data">
-		<h2>Climate Information</h2>
-
-		<div class="climate-summary">
-			<div class="climate-card hardiness-card">
-				<h3>USDA Hardiness Zone</h3>
-				<div class="zone-badge">{hardinessZone.zone}</div>
-				<p class="zone-temp">{formatZoneTempRange(hardinessZone)}</p>
-				{#if hardinessZone.isApproximate}
-					<p class="zone-note">Estimated from coordinates</p>
+			<!-- Map view -->
+			{#if viewMode === 'map'}
+				<MapPicker
+					initialLocation={{ latitude, longitude }}
+					zoom={20}
+					showShadows={true}
+					enableTreePlacement={currentPhase === 'site'}
+					enableObservationPoint={currentPhase === 'analysis'}
+					disableClickHandler={currentPhase === 'plants'}
+					bind:trees={plannerTrees}
+					bind:observationPoint
+					persistTrees={true}
+					enableAutoTreeDetection={true}
+					onmapready={(m) => (mapRef = m)}
+					onshademaready={(sm) => (shadeMapInterface = sm)}
+				/>
+				{#if currentPhase === 'plants' && mapRef}
+					<ZoneEditor
+						bind:this={zoneEditorRef}
+						map={mapRef}
+						bind:zones
+						{selectedZoneId}
+						onselect={(id) => (selectedZoneId = id)}
+						bind:drawingMode={zoneDrawingMode}
+						ondrawingmodechange={(active) => (zoneDrawingMode = active)}
+					/>
 				{/if}
-			</div>
-
-			{#if koppenClass}
-				<div class="climate-card koppen-card">
-					<h3>Köppen Climate</h3>
-					<div class="koppen-badge">{koppenClass.code}</div>
-					<p class="koppen-description">{koppenClass.description}</p>
-				</div>
-			{:else if enhancedClimateLoading}
-				<div class="climate-card koppen-card loading">
-					<h3>Köppen Climate</h3>
-					<div class="loading-placeholder">Loading...</div>
-				</div>
+			{:else}
+				<!-- Plan view -->
+				<PlanCanvas
+					{zones}
+					onzoneschange={(z) => (zones = z)}
+					{selectedZoneId}
+					onselect={(id) => (selectedZoneId = id)}
+					onsvgref={(svg) => (planCanvasRef = svg)}
+				/>
 			{/if}
 		</div>
 
-		<div class="climate-summary">
-			<div class="climate-card frost-card">
-				<h3>Frost Dates</h3>
-				<div class="frost-dates">
-					<div class="frost-date">
-						<span class="frost-label">Last Spring Frost</span>
-						<span class="frost-value">{formatFrostDate(activeFrostDates.lastSpringFrost.median)}</span>
-						<span class="frost-range">
-							{formatFrostDate(activeFrostDates.lastSpringFrost.early)} – {formatFrostDate(activeFrostDates.lastSpringFrost.late)}
-						</span>
-					</div>
-					<div class="frost-date">
-						<span class="frost-label">First Fall Frost</span>
-						<span class="frost-value">{formatFrostDate(activeFrostDates.firstFallFrost.median)}</span>
-						<span class="frost-range">
-							{formatFrostDate(activeFrostDates.firstFallFrost.early)} – {formatFrostDate(activeFrostDates.firstFallFrost.late)}
-						</span>
-					</div>
-				</div>
-				{#if enhancedFrostDates && enhancedFrostDates.confidence === 'high'}
-					<p class="frost-source">Based on 30 years of historical data</p>
-				{/if}
-			</div>
-
-			{#if monthlyTemps}
-				<div class="climate-card temp-chart-card">
-					<TemperatureChart monthly={monthlyTemps} units="fahrenheit" />
-				</div>
-			{:else if enhancedClimateLoading}
-				<div class="climate-card temp-chart-card loading">
-					<h3>Temperature Patterns</h3>
-					<div class="loading-placeholder chart-placeholder">Loading temperature data...</div>
-				</div>
-			{/if}
-		</div>
-
-		{#if koppenClass}
-			<div class="gardening-notes">
-				<h3>Gardening Notes for {koppenClass.description} Climate</h3>
-				<p>{koppenClass.gardeningNotes}</p>
-			</div>
-		{/if}
-
-		{#if seasonalOutlook && seasonalOutlook.isWithinCoverage}
-			<div class="seasonal-outlook">
-				<div class="outlook-header">
-					<h3>Seasonal Outlook</h3>
-					{#if seasonalOutlook.seasonal}
-						<span class="outlook-period">{seasonalOutlook.seasonal.validPeriod}</span>
-					{/if}
-				</div>
-
-				{#if seasonalOutlook.seasonal}
-					<div class="outlook-categories">
-						<div class="outlook-item {getOutlookColorClass(seasonalOutlook.seasonal.temperature.type)}">
-							<span class="outlook-label">Temperature</span>
-							<span class="outlook-value">
-								{formatOutlookCategory(seasonalOutlook.seasonal.temperature, 'temperatures')}
-							</span>
-						</div>
-						{#if seasonalOutlook.seasonal.precipitation}
-							<div class="outlook-item {getOutlookColorClass(seasonalOutlook.seasonal.precipitation.type)}">
-								<span class="outlook-label">Precipitation</span>
-								<span class="outlook-value">
-									{formatOutlookCategory(seasonalOutlook.seasonal.precipitation, 'precipitation')}
-								</span>
-							</div>
-						{/if}
-					</div>
-				{/if}
-
-				{#if seasonalOutlook.drought && seasonalOutlook.drought.status !== 'none'}
-					<div class="drought-status">
-						<span class="drought-label">Drought:</span>
-						<span class="drought-value">{formatDroughtStatus(seasonalOutlook.drought.status)}</span>
-					</div>
-				{/if}
-
-				<button
-					type="button"
-					class="outlook-toggle"
-					onclick={() => (showOutlookDetails = !showOutlookDetails)}
+		<!-- Phase panel (sidebar on desktop, bottom sheet on mobile) -->
+		{#if isMobile}
+			{@const phaseLabels: Record<Phase, string> = {
+				site: 'Site Setup',
+				analysis: 'Sun Analysis',
+				plants: 'Plant Selection',
+				plan: 'Your Plan'
+			}}
+			{@const quickStats: Record<Phase, string> = {
+				site: plannerTrees.length > 0 ? `${plannerTrees.length} trees` : '',
+				analysis: observationPoint ? 'Spot selected' : '',
+				plants: zones.length > 0 ? `${zones.length} zone${zones.length > 1 ? 's' : ''}` : '',
+				plan: zones.reduce((sum, z) => sum + z.plants.reduce((pSum, p) => pSum + p.quantity, 0), 0) > 0
+					? `${zones.reduce((sum, z) => sum + z.plants.reduce((pSum, p) => pSum + p.quantity, 0), 0)} plants`
+					: ''
+			}}
+			<BottomSheet
+				collapsedHeight="64px"
+				minHeight="42%"
+				maxHeight="75%"
+				expanded={bottomSheetExpanded}
+				title={phaseLabels[currentPhase]}
+				quickStat={quickStats[currentPhase]}
+				onExpand={() => (bottomSheetExpanded = true)}
+				onCollapse={() => (bottomSheetExpanded = false)}
+				onSwipeLeft={currentPhase !== 'plan' ? goNext : undefined}
+				onSwipeRight={currentPhase !== 'site' ? goBack : undefined}
+			>
+				<PhasePanel
+					{currentPhase}
+					canGoNext={canGoNextPhase}
+					nextLabel={nextLabels[currentPhase]}
+					onNext={goNext}
+					onBack={goBack}
 				>
-					{showOutlookDetails ? 'Hide guidance' : 'Show gardening guidance'}
-				</button>
+					{#if currentPhase === 'site'}
+						{@render sitePhaseContent()}
+					{:else if currentPhase === 'analysis'}
+						{@render analysisPhaseContent()}
+					{:else if currentPhase === 'plants'}
+						{@render plantsPhaseContent()}
+					{:else if currentPhase === 'plan'}
+						{@render planPhaseContent()}
+					{/if}
+				</PhasePanel>
+			</BottomSheet>
+		{:else}
+			<div class="panel-sidebar">
+				<PhasePanel
+					{currentPhase}
+					canGoNext={canGoNextPhase}
+					nextLabel={nextLabels[currentPhase]}
+					onNext={goNext}
+					onBack={goBack}
+				>
+					{#if currentPhase === 'site'}
+						{@render sitePhaseContent()}
+					{:else if currentPhase === 'analysis'}
+						{@render analysisPhaseContent()}
+					{:else if currentPhase === 'plants'}
+						{@render plantsPhaseContent()}
+					{:else if currentPhase === 'plan'}
+						{@render planPhaseContent()}
+					{/if}
+				</PhasePanel>
+			</div>
+		{/if}
+	</div>
+</div>
 
-				{#if showOutlookDetails}
-					<div class="outlook-guidance">
-						{#each seasonalOutlook.guidance.split('\n\n') as paragraph}
-							<p>{paragraph}</p>
-						{/each}
-					</div>
+<!-- Phase content snippets -->
+{#snippet sitePhaseContent()}
+	<div class="phase-content site-content">
+		<section class="location-summary">
+			{#if name}
+				<h3 class="location-name">{name}</h3>
+			{/if}
+			<p class="location-coords">
+				{latitude.toFixed(4)}, {longitude.toFixed(4)}
+			</p>
+			<p class="location-zone">
+				Zone {hardinessZone.zone} · {formatZoneTempRange(hardinessZone)}
+			</p>
+		</section>
+
+		<section class="tree-list">
+			<h3>Trees on Property</h3>
+			{#if plannerTrees.length === 0}
+				<p class="empty-state">No trees detected. Click the tree button on the map to add trees manually.</p>
+			{:else}
+				<ul class="trees">
+					{#each plannerTrees as tree}
+						<li class="tree-item">
+							<span class="tree-type">{tree.type}</span>
+							<span class="tree-size">{tree.height}m tall · {tree.canopyWidth}m wide</span>
+						</li>
+					{/each}
+				</ul>
+			{/if}
+		</section>
+
+		<section class="site-status">
+			<div class="status-item" class:complete={plannerTrees.length > 0 || true}>
+				<span class="status-icon">✓</span>
+				<span>Location confirmed</span>
+			</div>
+			<div class="status-item" class:complete={plannerTrees.length >= 0}>
+				<span class="status-icon">{plannerTrees.length > 0 ? '✓' : '○'}</span>
+				<span>Trees identified ({plannerTrees.length})</span>
+			</div>
+		</section>
+
+		{#if zones.length > 0 || completedPhases.length > 0}
+			<section class="clear-section">
+				<ClearPlanButton onclear={handleClearPlan} />
+			</section>
+		{/if}
+	</div>
+{/snippet}
+
+{#snippet analysisPhaseContent()}
+	<div class="phase-content analysis-content">
+		<section class="period-section">
+			<h3>Analysis Period</h3>
+			<PeriodSelector
+				bind:period={analysisPeriod}
+				{latitude}
+			/>
+		</section>
+
+		<section class="sun-summary">
+			<h3>Sun Exposure</h3>
+			<SunDataCard data={sunData} {timezone} />
+		</section>
+
+		{#if observationPoint && plannerSunHours}
+			<section class="spot-results">
+				<h3>Selected Spot</h3>
+				<SunHoursDisplay
+					observationPoint={{ lat: observationPoint.lat, lng: observationPoint.lng }}
+					trees={plannerTreeConfigs}
+					date={new Date()}
+					{shadeMapInterface}
+				/>
+			</section>
+		{:else}
+			<section class="spot-prompt">
+				<p>Click the crosshairs button, then click on the map to analyze sun exposure at a specific spot.</p>
+			</section>
+		{/if}
+
+		<section class="climate-summary">
+			<h3>Climate</h3>
+			<div class="climate-cards">
+				<div class="climate-card">
+					<span class="card-label">Last Frost</span>
+					<span class="card-value">{formatFrostDate(activeFrostDates.lastSpringFrost.median)}</span>
+				</div>
+				<div class="climate-card">
+					<span class="card-label">First Frost</span>
+					<span class="card-value">{formatFrostDate(activeFrostDates.firstFallFrost.median)}</span>
+				</div>
+				<div class="climate-card">
+					<span class="card-label">Growing Season</span>
+					<span class="card-value">{growingSeason.lengthDays.typical} days</span>
+				</div>
+			</div>
+		</section>
+	</div>
+{/snippet}
+
+{#snippet plantsPhaseContent()}
+	<div class="phase-content plants-content">
+		<section class="zones-section">
+			<ZoneList
+				{zones}
+				{selectedZoneId}
+				onselect={(id) => (selectedZoneId = id)}
+				ondelete={(id) => zoneEditorRef?.deleteZone(id)}
+				onrename={(id, name) => zoneEditorRef?.renameZone(id, name)}
+				onaddzone={() => (zoneDrawingMode = !zoneDrawingMode)}
+				drawingMode={zoneDrawingMode}
+			/>
+		</section>
+
+		<section class="plant-selector-section">
+			<PlantSelector
+				{zones}
+				{selectedZoneId}
+				onzoneselect={(id) => (selectedZoneId = id)}
+				onzoneplantschange={(zoneId, plants) => {
+					zones = zones.map((z) => (z.id === zoneId ? { ...z, plants } : z));
+				}}
+			/>
+		</section>
+	</div>
+{/snippet}
+
+{#snippet planPhaseContent()}
+	{@const totalPlants = zones.reduce((sum, z) => sum + z.plants.reduce((pSum, p) => pSum + p.quantity, 0), 0)}
+	<div class="phase-content plan-content">
+		<section class="plan-summary">
+			<h3>Your Garden Plan</h3>
+			<p class="plan-instructions">
+				{#if viewMode === 'map'}
+					Switch to Plan view to see your schematic layout. Drag plants to reposition them within zones.
+				{:else}
+					Drag plants to adjust positions. Yellow rings indicate spacing warnings; red rings indicate overlaps.
 				{/if}
-			</div>
-		{:else if seasonalOutlook && !seasonalOutlook.isWithinCoverage}
-			<p class="outlook-unavailable">
-				Seasonal outlook data is only available for US locations. Plan according to historical climate patterns for your region.
 			</p>
+		</section>
+
+		<section class="plan-preview">
+			<div class="plan-stats">
+				<div class="stat">
+					<span class="stat-value">{plannerTrees.length}</span>
+					<span class="stat-label">Trees</span>
+				</div>
+				<div class="stat">
+					<span class="stat-value">{zones.length}</span>
+					<span class="stat-label">Zones</span>
+				</div>
+				<div class="stat">
+					<span class="stat-value">{totalPlants}</span>
+					<span class="stat-label">Plants</span>
+				</div>
+			</div>
+		</section>
+
+		<!-- Zone plant summary -->
+		{#if zones.length > 0}
+			<section class="zone-summary">
+				<h3>Plant List by Zone</h3>
+				{#each zones as zone}
+					{@const zonePlantCount = zone.plants.reduce((sum, p) => sum + p.quantity, 0)}
+					{#if zone.plants.length > 0}
+						<div class="zone-plants">
+							<div class="zone-header">
+								<span class="zone-name">{zone.name}</span>
+								<span class="zone-light">{zone.lightCategory.replace('-', ' ')}</span>
+							</div>
+							<ul class="plant-list">
+								{#each zone.plants as placed}
+									{@const plant = getPlantById(placed.plantId)}
+									{#if plant}
+										<li>
+											<span class="plant-name">{plant.name}</span>
+											<span class="plant-qty">x{placed.quantity}</span>
+										</li>
+									{/if}
+								{/each}
+							</ul>
+						</div>
+					{/if}
+				{/each}
+			</section>
 		{/if}
 
-		{#if enhancedClimateError}
-			<p class="climate-error">
-				Could not load enhanced climate data: {enhancedClimateError}. Showing estimates from embedded tables.
-			</p>
-		{/if}
-
-		<div class="timeline-section">
-			<GrowingSeasonTimeline frostDates={activeFrostDates} {growingSeason} />
-		</div>
-	</section>
-
-	<section class="recommendations-section">
-		<h2>Plant Recommendations</h2>
-
-		<div class="recommendations-grid">
-			<div class="recommendations-main">
-				<PlantRecommendations {recommendations} />
-			</div>
-
-			<div class="recommendations-sidebar">
-				<SeasonalLightChart {monthlyData} hasShadeData={obstacles.length > 0} />
-			</div>
-		</div>
-
-		<div class="calendar-section">
-			<PlantingCalendar frostDates={activeFrostDates} {growingSeason} />
-		</div>
-	</section>
-
-	<nav>
-		<a href="/">Change location</a>
-	</nav>
-</main>
+		<section class="export-section">
+			<button
+				type="button"
+				class="export-button"
+				onclick={handleExportPdf}
+				disabled={isExporting || zones.length === 0}
+			>
+				{#if isExporting}
+					<svg class="spinner" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+						<path d="M21 12a9 9 0 1 1-6.219-8.56" />
+					</svg>
+					Generating...
+				{:else}
+					<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+						<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+						<polyline points="7 10 12 15 17 10"></polyline>
+						<line x1="12" y1="15" x2="12" y2="3"></line>
+					</svg>
+					Generate PDF
+				{/if}
+			</button>
+			{#if zones.length === 0}
+				<p class="export-note">Add zones and plants first</p>
+			{/if}
+		</section>
+	</div>
+{/snippet}
 
 <style>
-	main {
-		max-width: 800px;
-		margin: 0 auto;
-		padding: 2rem;
-		font-family: system-ui, -apple-system, sans-serif;
-	}
-
-	h1 {
-		color: #333;
-	}
-
-	h2 {
-		color: #555;
-		font-size: 1.25rem;
-		margin-top: 1.5rem;
-	}
-
-	section {
-		margin-bottom: 1.5rem;
-	}
-
-	.location-info {
+	.plan-layout {
+		display: flex;
+		flex-direction: column;
+		height: 100vh;
+		overflow: hidden;
 		background: #f5f5f5;
+	}
+
+	.layout-header {
+		flex-shrink: 0;
+		z-index: 10;
+	}
+
+	.layout-main {
+		flex: 1;
+		display: flex;
+		overflow: hidden;
+		position: relative;
+	}
+
+	/* Desktop layout: map left, panel right */
+	.map-canvas {
+		flex: 1;
+		min-width: 0;
+		position: relative;
+	}
+
+	.map-canvas :global(.map-container) {
+		height: 100%;
+	}
+
+	.map-canvas :global(.plan-canvas) {
+		height: 100%;
+	}
+
+	.view-toggle-container {
+		position: absolute;
+		top: 12px;
+		right: 12px;
+		z-index: 1000;
+	}
+
+	.panel-sidebar {
+		width: 40%;
+		max-width: 480px;
+		min-width: 320px;
+		border-left: 1px solid #e5e7eb;
+		overflow: hidden;
+	}
+
+	/* Mobile layout: map top, bottom sheet */
+	.plan-layout.mobile .layout-main {
+		flex-direction: column;
+	}
+
+	.plan-layout.mobile .map-canvas {
+		flex: none;
+		height: 55%;
+	}
+
+	.plan-layout.mobile .panel-sidebar {
+		display: none;
+	}
+
+	/* Phase content styles */
+	.phase-content {
+		display: flex;
+		flex-direction: column;
+		gap: 1.5rem;
+	}
+
+	.phase-content section {
+		margin: 0;
+	}
+
+	.phase-content h3 {
+		margin: 0 0 0.75rem;
+		font-size: 0.875rem;
+		font-weight: 600;
+		color: #374151;
+		text-transform: uppercase;
+		letter-spacing: 0.025em;
+	}
+
+	/* Site phase */
+	.location-summary {
 		padding: 1rem;
+		background: #f0fdf4;
+		border: 1px solid #86efac;
 		border-radius: 8px;
 	}
 
 	.location-name {
-		font-size: 1.25rem;
-		font-weight: 500;
-		margin: 0 0 0.5rem;
-	}
-
-	.sun-data {
-		margin-top: 1.5rem;
-	}
-
-	.plot-section {
-		margin-top: 2rem;
-	}
-
-	.plot-description {
-		margin: 0.5rem 0 1rem;
-		font-size: 0.875rem;
-		color: #6b7280;
-		line-height: 1.5;
-	}
-
-	.plot-viewer-container {
-		background: #fafaf9;
-		border: 1px solid #e7e5e4;
-		border-radius: 8px;
-		padding: 1rem;
-		min-height: 650px;
-	}
-
-	/* Mobile: remove container min-height since PlotViewer shows collapsed view */
-	@media (max-width: 600px) {
-		.plot-viewer-container {
-			min-height: auto;
-			background: transparent;
-			border: none;
-			padding: 0;
-		}
-	}
-
-	.climate-data {
-		margin-top: 2rem;
-	}
-
-	.climate-summary {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: 1rem;
-		margin-top: 1rem;
-	}
-
-	.climate-card {
-		padding: 1rem;
-		border-radius: 8px;
-	}
-
-	.climate-card h3 {
-		margin: 0 0 0.75rem;
-		font-size: 0.875rem;
-		text-transform: uppercase;
-		letter-spacing: 0.025em;
-	}
-
-	.hardiness-card {
-		background: #f0fdf4;
-		border: 1px solid #86efac;
-	}
-
-	.hardiness-card h3 {
+		margin: 0 0 0.25rem !important;
+		font-size: 1.125rem !important;
+		font-weight: 600;
 		color: #166534;
+		text-transform: none !important;
+		letter-spacing: normal !important;
 	}
 
-	.zone-badge {
-		font-size: 2.5rem;
-		font-weight: 700;
-		color: #15803d;
-		line-height: 1;
-	}
-
-	.zone-temp {
-		margin: 0.5rem 0 0;
+	.location-coords {
+		margin: 0;
 		font-size: 0.875rem;
 		color: #4b5563;
-	}
-
-	.zone-note {
-		margin: 0.25rem 0 0;
-		font-size: 0.75rem;
-		color: #9ca3af;
-		font-style: italic;
-	}
-
-	.koppen-card {
-		background: #fef3c7;
-		border: 1px solid #fcd34d;
-	}
-
-	.koppen-card h3 {
-		color: #92400e;
-	}
-
-	.koppen-badge {
-		font-size: 2rem;
-		font-weight: 700;
-		color: #b45309;
-		line-height: 1;
 		font-family: ui-monospace, monospace;
 	}
 
-	.koppen-description {
+	.location-zone {
 		margin: 0.5rem 0 0;
-		font-size: 0.875rem;
-		color: #78350f;
+		font-size: 0.8125rem;
+		color: #15803d;
 	}
 
-	.frost-card {
-		background: #eff6ff;
-		border: 1px solid #93c5fd;
-	}
-
-	.frost-card h3 {
-		color: #1e40af;
-	}
-
-	.frost-dates {
+	.tree-list .trees {
+		list-style: none;
+		margin: 0;
+		padding: 0;
 		display: flex;
 		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.tree-item {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 0.625rem 0.875rem;
+		background: #fafafa;
+		border: 1px solid #e5e7eb;
+		border-radius: 6px;
+	}
+
+	.tree-type {
+		font-weight: 500;
+		color: #1f2937;
+		text-transform: capitalize;
+	}
+
+	.tree-size {
+		font-size: 0.8125rem;
+		color: #6b7280;
+	}
+
+	.empty-state {
+		margin: 0;
+		padding: 1rem;
+		background: #f9fafb;
+		border: 1px dashed #d1d5db;
+		border-radius: 6px;
+		font-size: 0.875rem;
+		color: #6b7280;
+		text-align: center;
+	}
+
+	.site-status {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.status-item {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-size: 0.875rem;
+		color: #6b7280;
+	}
+
+	.status-item.complete {
+		color: #15803d;
+	}
+
+	.status-icon {
+		width: 1.25rem;
+		text-align: center;
+	}
+
+	.clear-section {
+		padding-top: 0.5rem;
+		border-top: 1px solid #e5e7eb;
+	}
+
+	/* Analysis phase */
+	.climate-cards {
+		display: grid;
+		grid-template-columns: repeat(3, 1fr);
 		gap: 0.75rem;
 	}
 
-	.frost-date {
+	.climate-card {
 		display: flex;
 		flex-direction: column;
+		padding: 0.75rem;
+		background: #eff6ff;
+		border: 1px solid #bfdbfe;
+		border-radius: 6px;
+		text-align: center;
 	}
 
-	.frost-label {
-		font-size: 0.75rem;
-		color: #64748b;
+	.card-label {
+		font-size: 0.6875rem;
 		text-transform: uppercase;
 		letter-spacing: 0.025em;
-	}
-
-	.frost-value {
-		font-size: 1.125rem;
-		font-weight: 600;
-		color: #1e293b;
-	}
-
-	.frost-range {
-		font-size: 0.75rem;
-		color: #64748b;
-	}
-
-	.frost-source {
-		margin: 0.75rem 0 0;
-		font-size: 0.75rem;
 		color: #3b82f6;
-		font-style: italic;
 	}
 
-	.temp-chart-card {
-		background: transparent;
-		border: none;
-		padding: 0;
-	}
-
-	.temp-chart-card :global(.temperature-chart) {
-		height: 100%;
-	}
-
-	.loading {
-		opacity: 0.7;
-	}
-
-	.loading-placeholder {
-		font-size: 0.875rem;
-		color: #6b7280;
-		font-style: italic;
-	}
-
-	.chart-placeholder {
-		height: 150px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		background: #f9fafb;
-		border-radius: 4px;
-	}
-
-	.gardening-notes {
-		margin-top: 1.5rem;
-		padding: 1rem;
-		background: #fffbeb;
-		border: 1px solid #fde68a;
-		border-radius: 8px;
-	}
-
-	.gardening-notes h3 {
-		margin: 0 0 0.5rem;
+	.card-value {
 		font-size: 0.9375rem;
-		color: #92400e;
+		font-weight: 600;
+		color: #1e40af;
 	}
 
-	.gardening-notes p {
+	.spot-prompt {
+		padding: 1rem;
+		background: #fefce8;
+		border: 1px solid #fde047;
+		border-radius: 6px;
+	}
+
+	.spot-prompt p {
 		margin: 0;
 		font-size: 0.875rem;
-		color: #78350f;
-		line-height: 1.6;
+		color: #854d0e;
 	}
 
-	.seasonal-outlook {
-		margin-top: 1.5rem;
+	/* Plants phase */
+	.placeholder-note {
+		margin: 0;
+		padding: 1rem;
+		background: #f9fafb;
+		border: 1px dashed #d1d5db;
+		border-radius: 6px;
+		font-size: 0.875rem;
+		color: #6b7280;
+	}
+
+	/* Plan phase */
+	.plan-stats {
+		display: grid;
+		grid-template-columns: repeat(3, 1fr);
+		gap: 1rem;
+	}
+
+	.stat {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
 		padding: 1rem;
 		background: #f0f9ff;
 		border: 1px solid #bae6fd;
 		border-radius: 8px;
 	}
 
-	.outlook-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		margin-bottom: 0.75rem;
-	}
-
-	.outlook-header h3 {
-		margin: 0;
-		font-size: 0.9375rem;
+	.stat-value {
+		font-size: 1.5rem;
+		font-weight: 700;
 		color: #0369a1;
 	}
 
-	.outlook-period {
+	.stat-label {
 		font-size: 0.75rem;
 		color: #0284c7;
-		font-weight: 500;
+		text-transform: uppercase;
+		letter-spacing: 0.025em;
 	}
 
-	.outlook-categories {
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
+	.export-section {
+		text-align: center;
 	}
 
-	.outlook-item {
-		display: flex;
-		justify-content: space-between;
+	.export-button {
+		display: inline-flex;
 		align-items: center;
-		padding: 0.5rem 0.75rem;
-		border-radius: 4px;
-		font-size: 0.875rem;
-	}
-
-	.outlook-warm {
-		background: #fef2f2;
-		border: 1px solid #fecaca;
-	}
-
-	.outlook-cool {
-		background: #eff6ff;
-		border: 1px solid #bfdbfe;
-	}
-
-	.outlook-normal {
-		background: #f0fdf4;
-		border: 1px solid #bbf7d0;
-	}
-
-	.outlook-neutral {
-		background: #f9fafb;
-		border: 1px solid #e5e7eb;
-	}
-
-	.outlook-label {
-		font-weight: 500;
-		color: #374151;
-	}
-
-	.outlook-value {
-		color: #6b7280;
-	}
-
-	.drought-status {
-		margin-top: 0.75rem;
-		padding: 0.5rem 0.75rem;
-		background: #fef3c7;
-		border: 1px solid #fcd34d;
-		border-radius: 4px;
-		font-size: 0.875rem;
-	}
-
-	.drought-label {
-		font-weight: 500;
-		color: #92400e;
-	}
-
-	.drought-value {
-		margin-left: 0.5rem;
-		color: #b45309;
-	}
-
-	.outlook-toggle {
-		margin-top: 0.75rem;
-		padding: 0.375rem 0.75rem;
-		font-size: 0.75rem;
-		color: #0369a1;
-		background: white;
-		border: 1px solid #bae6fd;
-		border-radius: 4px;
+		gap: 0.5rem;
+		padding: 0.875rem 1.5rem;
+		background: #22c55e;
+		color: white;
+		border: none;
+		border-radius: 8px;
+		font-size: 1rem;
+		font-weight: 600;
 		cursor: pointer;
 		transition: background-color 0.15s;
 	}
 
-	.outlook-toggle:hover {
-		background: #e0f2fe;
+	.export-button:hover:not(:disabled) {
+		background: #16a34a;
 	}
 
-	.outlook-guidance {
-		margin-top: 0.75rem;
+	.export-button:disabled {
+		background: #d1d5db;
+		cursor: not-allowed;
+	}
+
+	.export-note {
+		margin: 0.5rem 0 0;
+		font-size: 0.75rem;
+		color: #9ca3af;
+	}
+
+	.spinner {
+		animation: spin 1s linear infinite;
+	}
+
+	@keyframes spin {
+		from {
+			transform: rotate(0deg);
+		}
+		to {
+			transform: rotate(360deg);
+		}
+	}
+
+	.plan-instructions {
+		margin: 0;
+		font-size: 0.875rem;
+		color: #4b5563;
+		line-height: 1.5;
+	}
+
+	.zone-summary {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+	}
+
+	.zone-plants {
 		padding: 0.75rem;
-		background: white;
-		border-radius: 4px;
+		background: #fafafa;
+		border: 1px solid #e5e7eb;
+		border-radius: 6px;
 	}
 
-	.outlook-guidance p {
-		margin: 0 0 0.75rem;
-		font-size: 0.875rem;
-		color: #374151;
-		line-height: 1.6;
+	.zone-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 0.5rem;
 	}
 
-	.outlook-guidance p:last-child {
-		margin-bottom: 0;
+	.zone-name {
+		font-weight: 600;
+		color: #1f2937;
 	}
 
-	.outlook-unavailable {
-		margin-top: 1rem;
-		font-size: 0.875rem;
+	.zone-light {
+		font-size: 0.75rem;
+		text-transform: capitalize;
 		color: #6b7280;
-		font-style: italic;
-	}
-
-	.climate-error {
-		margin-top: 1rem;
-		padding: 0.75rem;
-		background: #fef2f2;
-		border: 1px solid #fecaca;
+		background: #f3f4f6;
+		padding: 2px 6px;
 		border-radius: 4px;
+	}
+
+	.plant-list {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+
+	.plant-list li {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
 		font-size: 0.875rem;
-		color: #991b1b;
 	}
 
-	.timeline-section {
-		margin-top: 1.5rem;
+	.plant-name {
+		color: #374151;
 	}
 
-	.recommendations-section {
-		margin-top: 2rem;
+	.plant-qty {
+		font-weight: 500;
+		color: #6b7280;
 	}
 
-	.recommendations-grid {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: 1.5rem;
-		margin-top: 1rem;
-	}
-
-	.recommendations-main {
-		min-width: 0;
-	}
-
-	.recommendations-sidebar {
-		min-width: 0;
-	}
-
-	.calendar-section {
-		margin-top: 1.5rem;
-	}
-
-	nav {
-		margin-top: 2rem;
-		padding-top: 1rem;
-		border-top: 1px solid #eee;
-	}
-
-	a {
-		color: #0066cc;
-	}
-
-	@media (max-width: 600px) {
-		.climate-summary {
+	/* Mobile adjustments */
+	@media (max-width: 768px) {
+		.climate-cards {
 			grid-template-columns: 1fr;
 		}
 
-		.recommendations-grid {
-			grid-template-columns: 1fr;
+		.plan-stats {
+			grid-template-columns: repeat(3, 1fr);
+			gap: 0.5rem;
 		}
 
-		.outlook-header {
-			flex-direction: column;
-			align-items: flex-start;
-			gap: 0.25rem;
+		.stat {
+			padding: 0.75rem 0.5rem;
+		}
+
+		.stat-value {
+			font-size: 1.25rem;
+		}
+
+		/* Better button sizing for mobile */
+		.export-button {
+			min-height: 48px;
+			padding: 1rem 1.75rem;
+			font-size: 1rem;
+		}
+	}
+
+	/* Tablet (iPad) layout optimizations */
+	@media (min-width: 769px) and (max-width: 1024px) {
+		.plan-layout.mobile .map-canvas {
+			height: 50%;
+		}
+
+		.panel-sidebar {
+			width: 45%;
+			max-width: 520px;
+		}
+	}
+
+	/* iPad-specific touch optimizations */
+	@media (min-width: 768px) and (max-width: 1024px) and (hover: none) {
+		.phase-content h3 {
+			font-size: 0.9375rem;
+		}
+
+		.location-summary {
+			padding: 1.25rem;
+		}
+
+		.location-name {
+			font-size: 1.25rem !important;
+		}
+
+		.location-coords {
+			font-size: 0.9375rem;
+		}
+
+		.tree-item {
+			min-height: 48px;
+			padding: 0.75rem 1rem;
+		}
+
+		.tree-type {
+			font-size: 1rem;
+		}
+
+		.tree-size {
+			font-size: 0.875rem;
+		}
+
+		.climate-card {
+			padding: 1rem;
+		}
+
+		.card-label {
+			font-size: 0.75rem;
+		}
+
+		.card-value {
+			font-size: 1.0625rem;
+		}
+
+		.stat {
+			padding: 1.25rem;
+		}
+
+		.stat-value {
+			font-size: 1.75rem;
+		}
+
+		.stat-label {
+			font-size: 0.8125rem;
+		}
+
+		.export-button {
+			min-height: 52px;
+			padding: 1rem 2rem;
+			font-size: 1.0625rem;
+			border-radius: 10px;
+		}
+
+		.zone-plants {
+			padding: 1rem;
+		}
+
+		.zone-name {
+			font-size: 1rem;
+		}
+
+		.plant-list li {
+			font-size: 0.9375rem;
+			min-height: 36px;
+		}
+	}
+
+	/* High contrast for outdoor visibility */
+	@media (prefers-contrast: more) {
+		.plan-layout {
+			background: #e5e7eb;
+		}
+
+		.location-summary {
+			border-width: 2px;
+			background: #dcfce7;
+		}
+
+		.location-name {
+			color: #052e16 !important;
+		}
+
+		.location-coords {
+			color: #1f2937;
+			font-weight: 600;
+		}
+
+		.location-zone {
+			color: #166534;
+			font-weight: 600;
+		}
+
+		.tree-item {
+			border-width: 2px;
+			background: #f3f4f6;
+		}
+
+		.tree-type {
+			color: #000;
+			font-weight: 700;
+		}
+
+		.tree-size {
+			color: #374151;
+			font-weight: 600;
+		}
+
+		.status-item {
+			color: #374151;
+			font-weight: 600;
+		}
+
+		.status-item.complete {
+			color: #166534;
+			font-weight: 700;
+		}
+
+		.climate-card {
+			border-width: 2px;
+			background: #dbeafe;
+		}
+
+		.card-label {
+			color: #1d4ed8;
+			font-weight: 700;
+		}
+
+		.card-value {
+			color: #1e3a8a;
+			font-weight: 800;
+		}
+
+		.spot-prompt {
+			border-width: 2px;
+		}
+
+		.spot-prompt p {
+			color: #78350f;
+			font-weight: 600;
+		}
+
+		.stat {
+			border-width: 2px;
+			background: #dbeafe;
+		}
+
+		.stat-value {
+			color: #0c4a6e;
+			font-weight: 800;
+		}
+
+		.stat-label {
+			color: #0369a1;
+			font-weight: 700;
+		}
+
+		.export-button {
+			background: #166534;
+			font-weight: 700;
+		}
+
+		.export-button:hover:not(:disabled) {
+			background: #15803d;
+		}
+
+		.export-button:disabled {
+			background: #9ca3af;
+		}
+
+		.zone-plants {
+			border-width: 2px;
+		}
+
+		.zone-header .zone-name {
+			color: #000;
+			font-weight: 700;
+		}
+
+		.zone-light {
+			background: #d1d5db;
+			color: #374151;
+			font-weight: 600;
+		}
+
+		.plant-name {
+			color: #000;
+			font-weight: 600;
+		}
+
+		.plant-qty {
+			color: #374151;
+			font-weight: 700;
+		}
+
+		.plan-instructions {
+			color: #1f2937;
+			font-weight: 500;
+		}
+
+		.empty-state {
+			border-width: 2px;
+			color: #374151;
+			font-weight: 500;
 		}
 	}
 </style>

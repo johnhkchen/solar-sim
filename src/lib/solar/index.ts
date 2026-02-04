@@ -90,7 +90,14 @@ export {
 } from './slope.js';
 
 // Shadow projection for visualization
-export type { Point, ShadowPolygon, PlotObstacle } from './shadow-projection.js';
+export type {
+	Point,
+	ShadowPolygon,
+	PlotObstacle,
+	LatLng,
+	LatLngShadowPolygon,
+	MapTreeConfig
+} from './shadow-projection.js';
 
 export {
 	calculateShadowLength,
@@ -99,5 +106,52 @@ export {
 	calculateShadowPolygon,
 	calculateAllShadows,
 	getShadowBounds,
-	isPointInShadow
+	isPointInShadow,
+	calculateTreeShadowLatLng,
+	calculateAllTreeShadowsLatLng
 } from './shadow-projection.js';
+
+// Combined sun-hours calculation (ShadeMap + tree shadows)
+export type {
+	SunHoursBreakdown,
+	CombinedSunHoursResult,
+	SeasonalCombinedSunHours,
+	ShadeMapQuery
+} from './combined-sun-hours.js';
+
+export {
+	calculateTreeShadowHours,
+	calculateCombinedSunHours,
+	calculateCombinedSunHoursSync,
+	calculateSeasonalCombinedSunHours,
+	formatSunHoursBreakdown,
+	getTreeShadePercent,
+	getTotalShadePercent
+} from './combined-sun-hours.js';
+
+// Grid-based exposure calculation for heatmap rendering
+export type {
+	LatLngBounds,
+	DateRange,
+	GridConfig,
+	ExposureGrid,
+	ExposureCell,
+	ProgressCallback,
+	ShadeMapQueryInterface,
+	CombinedExposureGrid
+} from './exposure-grid.js';
+
+export {
+	calculateGridDimensions,
+	generateSampleDates,
+	getCellCenter,
+	calculateExposureGrid,
+	calculateExposureGridAsync,
+	calculateCombinedExposureGrid,
+	getExposureAt,
+	getExposureCellAt,
+	findCellAtLatLng,
+	getExposureAtLatLng,
+	getExposureGridStats,
+	forEachExposureCell
+} from './exposure-grid.js';

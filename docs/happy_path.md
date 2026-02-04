@@ -1,320 +1,166 @@
 # Solar-Sim Happy Path
 
 > **Status**: Draft
-> **Last Updated**: 2026-01-27
+> **Last Updated**: 2026-01-31
 
-This document describes the core user experience we're building toward—a 5-minute "happy demo" that demonstrates Solar-Sim's value proposition.
-
----
-
-## 1. The Demo Scenario
-
-### 1.1 Sample User: Maria
-
-**Profile**:
-- Home gardener in Portland, Oregon (45.5°N latitude)
-- Planning a vegetable garden in her backyard
-- Wants to know where to plant tomatoes (full sun) vs. lettuce (part shade)
-- Has no background in astronomy or solar calculations
-
-**Pain point**: Maria knows tomatoes need "full sun" but doesn't know if her backyard actually gets 6+ hours of direct sunlight, or how that changes across the growing season.
-
-### 1.2 The 5-Minute Experience
-
-#### Minute 0-1: Arrival & Location
-
-1. Maria opens Solar-Sim in her browser
-2. She sees a clean interface with a prominent location input
-3. She types "Portland, OR" and selects from autocomplete
-4. The app confirms: **"Portland, Oregon (45.5152° N, 122.6784° W)"**
-5. A timezone is auto-detected: **Pacific Time**
-
-**What's happening technically**:
-- Geocoding service converts address to coordinates
-- Timezone inference from coordinates
-- UI provides immediate feedback on location recognition
-
-#### Minute 1-2: Understanding the View
-
-1. The main display loads showing today's sun data
-2. Maria sees:
-   - **Sun hours today**: 8.2 hours
-   - **Category**: Full Sun ☀️
-   - **Sunrise/Sunset**: 6:45 AM / 8:12 PM
-3. A simple sun path arc shows the sun's trajectory across the sky
-4. Current sun position is highlighted on the arc
-
-**What's happening technically**:
-- Solar position calculations for current date/location
-- Integration of sun altitude over daylight hours
-- Classification against horticultural categories
-
-#### Minute 2-3: Exploring the Season
-
-1. Maria notices a date selector and calendar view
-2. She clicks to expand a **seasonal overview**
-3. A heatmap shows sun hours across the year:
-   - Summer: 14+ hours
-   - Winter: 8-9 hours
-   - Growing season (Apr-Oct) highlighted
-4. She sees the **growing season average**: 11.3 hours/day
-
-**What's happening technically**:
-- Batch calculation of sun hours across date range
-- Aggregation and visualization of seasonal patterns
-- Identification of relevant growing season window
-
-#### Minute 3-4: Getting Actionable Advice
-
-1. Maria scrolls to the **recommendations section**
-2. She sees:
-   ```
-   Your location receives FULL SUN during the growing season.
-
-   Suitable for:
-   ✓ Tomatoes, peppers, squash
-   ✓ Most vegetables and herbs
-   ✓ Sun-loving flowers (marigolds, zinnias)
-
-   Note: In summer, afternoon shade may benefit heat-sensitive
-   crops like lettuce. Consider east-facing areas for these.
-   ```
-3. A comparison table shows sun hours by season with plant suggestions
-
-**What's happening technically**:
-- Category classification based on growing season average
-- Rule-based recommendation engine matching categories to plants
-- Contextual notes based on latitude and seasonal extremes
-
-#### Minute 4-5: Saving & Sharing
-
-1. Maria clicks **"Save this analysis"**
-2. She gets a shareable URL with her location encoded
-3. She bookmarks it for reference when planting season arrives
-4. Optionally, she exports a simple PDF summary
-
-**What's happening technically**:
-- URL state encoding (location in query params or hash)
-- Client-side PDF generation (optional, may be v2)
-- No account required - stateless sharing
+This document describes the core user experience we're building toward. The goal is a 15-minute flow from address to exportable planting plan—the experience that saves a designer 3 hours per project or gives a homeowner professional-grade analysis they couldn't otherwise access.
 
 ---
 
-## 2. Key Moments of Delight
+## 1. The Core Insight
 
-### 2.1 Instant Gratification
-The user gets meaningful data within seconds of entering a location. No configuration, no sign-up, no waiting.
-
-### 2.2 The "Aha" Moment
-Seeing the seasonal heatmap reveals patterns the user never consciously knew—how dramatically sun exposure changes through the year at their latitude.
-
-### 2.3 Actionable, Not Academic
-Instead of raw numbers, the user gets planting guidance. We translate astronomy into gardening decisions.
+Solar-Sim is a sales enablement tool for saying "yes" to a planting plan. Every user—homeowner, designer, landscaper—is trying to reach the same endpoint: confidence that their plan will actually work. The UI optimizes for speed to confidence and shareable proof.
 
 ---
 
-## 3. What Makes This Work
+## 2. Primary Personas
 
-### 3.1 Solar System Simulation
+### 2.1 Lisa: Landscaper Admin
 
-The app includes accurate solar position calculations that capture:
+**Profile**: Lisa runs the business side of a landscaping company with her husband Mike. He has 20 years of plant knowledge and runs the crew. She handles scheduling, invoicing, and client communication. The bottleneck is that initial consultations require Mike's expertise, which takes him off job sites.
 
-| Factor | Implementation |
-|--------|----------------|
-| Earth's axial tilt (23.4°) | Drives seasonal variation |
-| Earth's orbital position | Affects sun-Earth distance, day length |
-| Latitude effects | Higher latitudes = more extreme seasons |
-| Time of day | Sun altitude throughout the day |
+**Pain point**: Lisa could grow the business by doing more consultations, but she can't confidently answer "what should I plant here?" without Mike present.
 
-The simulation doesn't need to model the full solar system—just Earth's orientation relative to the sun, which follows well-established astronomical formulas.
+**With Solar-Sim**: Lisa meets a homeowner, pulls up their address on her iPad, walks the property marking planting beds, and generates a plant palette on-site. She prints a take-home plan that evening. Mike reviews, approves, and schedules the install. Lisa just became a demand generation engine.
 
-### 3.2 Algorithms Behind the Scenes
+### 2.2 Maria: DIY Homeowner
 
-**Solar position** (for any location + time):
-- Calculate solar declination (sun's latitude)
-- Calculate hour angle (sun's position in daily arc)
-- Derive altitude and azimuth from spherical trigonometry
+**Profile**: Home gardener in Portland planning a vegetable garden. She knows tomatoes need "full sun" but doesn't know if her backyard actually gets 6+ hours of direct sunlight.
 
-**Sun hours integration**:
-- Sample sun altitude at regular intervals through the day
-- Count intervals where altitude > threshold (default 0°)
-- Sum to get total sun hours
+**Pain point**: The research required to validate a planting plan is overwhelming. She could hire a designer, but wants to know what she needs before spending money.
 
-**Seasonal aggregation**:
-- Repeat daily calculation across date range
-- Compute averages, min, max for the period
-- Identify patterns (solstices, equinoxes)
+**With Solar-Sim**: Maria gets the analysis a good designer would do. She sees exactly which beds are full sun vs part shade, gets validated plant suggestions, and exports a plan she can execute herself or hand to a landscaper with confidence.
 
-### 3.3 Horticultural Translation
+### 2.3 David: Landscape Designer
 
-Standard light categories are well-defined in gardening literature:
+**Profile**: Runs a small design practice, 20 projects per year. Good aesthetic sense but plant validation is tedious—cross-referencing Sunset zones, sun exposure, water needs, and spacing for each bed takes hours.
 
-| Category | Hours | Our Threshold |
+**Pain point**: He tends to plant what he knows works rather than optimizing for each site, because proper validation takes too long.
+
+**With Solar-Sim**: David starts with validated candidates instead of a blank canvas. The tedious research is done. He focuses on aesthetics, knowing every plant suggestion actually works for that specific site. Saves 3 hours per project, which adds up to 60 hours per year—enough capacity for 2-3 more projects.
+
+### 2.4 The Permaculture Practitioner
+
+**Profile**: Designing food forests and polyculture systems. Needs detailed microclimate understanding for guild planting—which spots get morning sun vs afternoon sun, where frost pockets form, how shadows shift seasonally.
+
+**Pain point**: Has been doing this manually with shadow stakes and notebooks for years. Software tools are either too simplistic or designed for conventional landscaping.
+
+**With Solar-Sim**: Gets the spatial sun analysis they've always wanted, with the seasonal heatmap revealing patterns that would take a full year of observation to discover manually.
+
+---
+
+## 3. The 15-Minute Experience
+
+This is the core flow that saves hours of manual research. Using Lisa (landscaper admin) as the example since she represents the highest-frequency use case.
+
+### Phase 1: Site Setup (Minutes 1-3)
+
+Lisa opens Solar-Sim on her iPad while standing in the client's front yard. She enters the address—autocomplete confirms the location and timezone. The map loads showing the property with ShadeMap's terrain shadows already visible. She can see the neighbor's two-story house casts afternoon shade on the west bed.
+
+She taps to place an observation point near the front door, then adjusts the property boundary. The app auto-detects two large trees from satellite canopy data and asks if she wants to include them. She confirms, then adds a third tree the satellite missed by tapping the map.
+
+### Phase 2: Sun Analysis (Minutes 3-6)
+
+Lisa selects "Growing Season" from the period dropdown—the app knows Portland's frost dates and sets April through October automatically. The heatmap renders across the property: orange-red for the full-sun south-facing beds, yellow for the part-sun areas along the fence, and blue-green for the shaded north corner.
+
+She taps on different spots to see the numbers. The south bed gets 7.2 hours average. The side yard gets 4.8 hours. The north corner gets 2.1 hours. The client says "I always wondered why my tomatoes struggled over there"—pointing at the north corner. Lisa shows them the heatmap. That's the credibility moment.
+
+### Phase 3: Plant Selection (Minutes 6-12)
+
+Lisa moves to the plan builder. The property is divided into the zones she marked. For each zone, the app shows validated candidates based on: Sunset zone 6 (Portland), the zone's sun exposure, and the client's stated preferences (low water, deer resistant, some edibles).
+
+For the full-sun south bed: lavender, rosemary, tomatoes, peppers, salvia, echinacea—all confirmed to work. For the part-sun side yard: lettuce, kale, ferns, bleeding heart, coral bells. For the shady north corner: hostas, Japanese forest grass, wild ginger, sword fern.
+
+Lisa and the client scroll through options together, tapping to add plants to the plan. The app shows mature size and spacing, flagging if things are too crowded. The client gets excited about the possibilities—"I didn't know we could grow this here."
+
+### Phase 4: Plan Export (Minutes 12-15)
+
+Lisa taps "Generate Plan." The app produces an overhead view with plants placed, a schedule listing each plant with quantities and sizes, and growing notes. She emails the PDF to the client on the spot.
+
+"We'll review this with Mike and follow up with a formal quote by Thursday." The client has something tangible to show their spouse. Lisa has a warm lead with specifics. Mike has clear specs when it's time to install.
+
+Total time: 15 minutes. Value: the research that would take 3+ hours is done, the client is excited, and the close rate just went up.
+
+---
+
+## 4. Key Moments
+
+### 4.1 The Credibility Moment
+
+When Lisa shows the client the heatmap and explains why their tomatoes struggled in the north corner, she establishes trust. The tool knows something the client suspected but couldn't prove. This is the moment that earns the right to make recommendations.
+
+### 4.2 The "Aha" Moment
+
+The seasonal heatmap reveals patterns that would take a year of observation to discover. "I didn't realize the oak tree shades half my yard by August." This is the insight that makes the tool feel valuable, not just convenient.
+
+### 4.3 The Excitement Moment
+
+When the client sees validated options for each zone and realizes what's possible—"I didn't know we could grow this here"—that's when they mentally commit to the project. The tool created demand, not just captured it.
+
+### 4.4 The Handoff Moment
+
+The exported PDF is tangible proof of a productive meeting. The client can show their spouse. Lisa can send a follow-up quote with specifics. Mike has clear specs for installation. The plan coordinates everyone without Lisa having to remember or retype anything.
+
+---
+
+## 5. What Makes This Work
+
+### 5.1 Data Layers
+
+Three data sources combine to produce accurate, actionable results:
+
+**Solar geometry** calculates sun position for any location and time using NOAA algorithms. This drives the theoretical maximum sun hours for each spot.
+
+**Shadow modeling** combines ShadeMap (precomputed terrain and building shadows from LiDAR data) with real-time tree shadow calculations. This reduces theoretical hours to actual hours accounting for obstructions.
+
+**Plant knowledge** from Sunset Western Garden provides regional authority on what grows where. Sunset zones are more granular than USDA hardiness zones, accounting for coastal influence, elevation, and microclimates.
+
+### 5.2 Horticultural Categories
+
+Standard light categories translate sun hours into planting decisions:
+
+| Category | Hours | What It Means |
 |----------|-------|---------------|
-| Full Sun | 6+ hours direct sun | ≥6 hours |
-| Part Sun | 4-6 hours | 4-5.99 hours |
-| Part Shade | 2-4 hours | 2-3.99 hours |
-| Full Shade | <2 hours | <2 hours |
+| Full Sun | 6+ hours | Most vegetables, sun-loving perennials |
+| Part Sun | 4-6 hours | Leafy greens, many herbs, woodland edge plants |
+| Part Shade | 2-4 hours | Shade-tolerant perennials, ferns |
+| Full Shade | <2 hours | Hostas, mosses, deep woodland plants |
 
-We apply these thresholds to calculated sun hours to produce actionable categories.
-
----
-
-## 4. Deployment Environment
-
-### 4.1 Target Platform
-
-| Aspect | Choice | Rationale |
-|--------|--------|-----------|
-| **Hosting** | Cloudflare Workers | Global edge deployment, fast cold starts |
-| **Framework** | SvelteKit | Small bundles, good Workers support |
-| **Rendering** | Hybrid SSR + CSR | Fast initial load, interactive calculations |
-
-### 4.2 Performance Targets
-
-| Metric | Target |
-|--------|--------|
-| Time to first meaningful paint | <1.5s |
-| Time to interactive | <2.5s |
-| Calculation latency | <100ms for single day |
-| Bundle size | <200KB gzipped |
-
-### 4.3 Browser Support
-
-- Modern evergreen browsers (Chrome, Firefox, Safari, Edge)
-- Mobile-responsive design
-- No IE11 support
-
----
-
-## 5. What's NOT in the Happy Path (v1)
-
-To keep scope manageable, these are explicitly deferred:
-
-| Feature | Reason for Deferral |
-|---------|---------------------|
-| Terrain/obstacle shadows | Requires elevation data or user input |
-| Multi-location comparison | Adds complexity to UI |
-| User accounts | Unnecessary for core value |
-| Historical weather data | Different problem domain |
-| Real-time cloud cover | Requires external API, changes scope |
+These thresholds are well-established in horticultural literature and form the bridge between astronomical calculation and practical gardening advice.
 
 ---
 
 ## 6. Success Criteria
 
-The happy path is successful when:
+The happy path succeeds when:
 
-1. **Functional**: User can input location and receive accurate sun data
-2. **Fast**: Results appear within 2 seconds of location input
-3. **Understandable**: Non-technical users can interpret results
-4. **Actionable**: User leaves knowing what to plant where
-5. **Shareable**: Results can be bookmarked or shared
-
----
-
-## 7. Background: Why This Matters
-
-### 7.1 The Problem We're Solving
-
-Calculating sun exposure requires:
-
-1. **Astronomical knowledge**: Solar declination, hour angles, spherical trigonometry
-2. **Geographic awareness**: Latitude effects, timezone handling
-3. **Temporal integration**: Summing exposure over hours, days, seasons
-4. **Domain translation**: Converting hours to gardening categories
-
-Each of these is individually approachable but combining them correctly is error-prone. Existing tools are often:
-- Too technical (raw astronomical data)
-- Too simple (just sunrise/sunset)
-- Paywalled or ad-heavy
-- Desktop-only or poorly designed
-
-### 7.2 Our Differentiation
-
-Solar-Sim focuses on the **gardener's question**: "What can I grow here?"
-
-We don't expose unnecessary complexity. We don't require accounts. We work on any device. We give answers in plant terms, not degrees and radians.
+1. **Speed to confidence**: User goes from address to exportable plan in under 15 minutes
+2. **Credibility**: Sun analysis matches what users observe on their property
+3. **Actionable output**: The plan is specific enough to hand to a landscaper or execute DIY
+4. **Data ownership**: Everything exports, no lock-in, no required account
+5. **Mobile-ready**: Works on iPad for on-site consultations
 
 ---
 
-## 8. Open Questions for Research
+## 7. What's NOT in V1
 
-> These need answers before implementation completes the happy path.
+To keep scope focused on the core value proposition:
 
-### 8.1 Location Input
-- [ ] Which geocoding API fits Cloudflare Workers constraints?
-- [ ] Should we support "use my location" GPS on mobile?
-
-### 8.2 Calculation Accuracy
-- [ ] What time interval for sun-hour integration balances accuracy and performance?
-- [ ] Do we need atmospheric refraction correction for accuracy users expect?
-
-### 8.3 Visualization
-- [ ] What's the simplest effective visualization for sun path?
-- [ ] Canvas vs SVG for the seasonal heatmap?
-
-### 8.4 Recommendations
-- [ ] What plant database/list should we include?
-- [ ] How locale-specific should recommendations be?
+| Feature | Why Deferred |
+|---------|--------------|
+| User accounts | Unnecessary for core value, adds friction |
+| Nursery integration | Complex data problem, future layer |
+| Landscaper marketplace | Requires critical mass of users first |
+| Historical weather data | Different problem domain |
+| Real-time cloud cover | Adds complexity without proportional value |
 
 ---
 
-## Appendix: User Flow Diagram
+## 8. Differentiation
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         LANDING PAGE                            │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │     🌻 Solar-Sim                                        │   │
-│  │     Find out how much sun your garden gets              │   │
-│  │                                                         │   │
-│  │     [Enter location...........................] [Go]    │   │
-│  │                                                         │   │
-│  │     or [📍 Use my location]                             │   │
-│  └─────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                        RESULTS PAGE                             │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │  Portland, Oregon                          [Change]     │   │
-│  │  45.52°N, 122.68°W · Pacific Time                       │   │
-│  ├─────────────────────────────────────────────────────────┤   │
-│  │                                                         │   │
-│  │  TODAY (Jan 27)           GROWING SEASON (Apr-Oct)      │   │
-│  │  ┌─────────────┐          ┌─────────────┐              │   │
-│  │  │   8.2 hrs   │          │  11.3 hrs   │              │   │
-│  │  │  Full Sun   │          │  Full Sun   │              │   │
-│  │  └─────────────┘          └─────────────┘              │   │
-│  │                                                         │   │
-│  │  [Sun Path Diagram]                                     │   │
-│  │       ╭─────────╮                                       │   │
-│  │      ╱     ●     ╲    ← Sun position now                │   │
-│  │     ╱             ╲                                     │   │
-│  │  ──────────────────── Horizon                           │   │
-│  │   E      S       W                                      │   │
-│  │                                                         │   │
-│  ├─────────────────────────────────────────────────────────┤   │
-│  │  SEASONAL OVERVIEW                    [▼ Show calendar] │   │
-│  │  ░░░░░▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░░                  │   │
-│  │  Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec        │   │
-│  │                                                         │   │
-│  ├─────────────────────────────────────────────────────────┤   │
-│  │  RECOMMENDATIONS                                        │   │
-│  │                                                         │   │
-│  │  ✓ Tomatoes, peppers, squash                           │   │
-│  │  ✓ Most vegetables and herbs                           │   │
-│  │  ✓ Sun-loving flowers                                  │   │
-│  │                                                         │   │
-│  │  💡 In summer, afternoon shade benefits lettuce        │   │
-│  │                                                         │   │
-│  └─────────────────────────────────────────────────────────┘   │
-│                                                                 │
-│  [📤 Share] [📥 Export PDF]                                    │
-└─────────────────────────────────────────────────────────────────┘
-```
+The competitive landscape has gaps at both ends: generic sun calculators are too simple (no spatial resolution, no plant intelligence) while professional landscape CAD is too complex (requires training, expensive). The residential gardening niche with site-specific validated plant suggestions is underserved.
+
+Solar-Sim focuses on the **business outcome**: saying yes to a planting plan. We don't expose unnecessary complexity. We don't require expertise to operate. We give answers in plant terms, not degrees and radians. The output is a professional artifact that coordinates homeowner, designer, and landscaper without anyone being locked into our platform.
 
 ---
 
@@ -322,4 +168,5 @@ We don't expose unnecessary complexity. We don't require accounts. We work on an
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-01-31 | Major revision: reframed around sales enablement, updated personas, rewrote flow for plan generation | Agent |
 | 2026-01-27 | Initial draft | Agent |

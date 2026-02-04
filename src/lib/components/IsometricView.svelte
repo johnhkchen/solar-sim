@@ -7,6 +7,10 @@
 	 * terrain slope appears as a tilted ground plane, and shadows project onto
 	 * the ground as semi-transparent polygons.
 	 *
+	 * Optionally displays a sun exposure heatmap on the ground plane, showing
+	 * average sun hours across an analysis period. This helps users visualize
+	 * which areas receive the most light for gardening decisions.
+	 *
 	 * The view is read-only - for editing obstacles, use PlotEditor instead.
 	 */
 
@@ -14,19 +18,32 @@
 	import type { PlotSlope } from '$lib/solar/slope';
 	import type { SolarPosition } from '$lib/solar/types';
 	import type { ShadowPolygon, Point } from '$lib/solar/shadow-projection';
+	import type { ExposureGrid } from '$lib/solar/exposure-grid';
+	import { DEFAULT_COLOR_SCALE, type HeatmapColorStop } from './ExposureHeatmap.svelte';
+
+	// Local type alias matching the exported IsometricDisplayMode
+	type DisplayMode = 'shadows' | 'heatmap';
 
 	interface IsometricViewProps {
 		obstacles?: PlotObstacle[];
 		slope?: PlotSlope;
 		shadows?: ShadowPolygon[];
 		sunPosition?: SolarPosition | null;
+		exposureGrid?: ExposureGrid | null;
+		displayMode?: DisplayMode;
+		colorScale?: HeatmapColorStop[];
+		showModeToggle?: boolean;
 	}
 
 	let {
 		obstacles = [],
 		slope = { angle: 0, aspect: 180 },
 		shadows = [],
-		sunPosition = null
+		sunPosition = null,
+		exposureGrid = null,
+		displayMode = $bindable<DisplayMode>('shadows'),
+		colorScale = DEFAULT_COLOR_SCALE,
+		showModeToggle = true
 	}: IsometricViewProps = $props();
 
 	// View state for pan, zoom, and rotation
@@ -438,21 +455,193 @@
 		observer.observe(containerElement);
 		return () => observer.disconnect();
 	});
+
+	// Constants for coordinate conversion
+	const METERS_PER_DEGREE_LAT = 111320;
+
+	/**
+	 * Converts a lat/lng point to world coordinates (meters from center).
+	 * The center is defined by the exposure grid's center point.
+	 */
+	function latLngToWorld(lat: number, lng: number, gridCenterLat: number, gridCenterLng: number): { x: number; y: number } {
+		const latRad = gridCenterLat * (Math.PI / 180);
+		const metersPerDegreeLng = METERS_PER_DEGREE_LAT * Math.cos(latRad);
+
+		// X is east (positive longitude), Y is north (positive latitude)
+		const x = (lng - gridCenterLng) * metersPerDegreeLng;
+		const y = (lat - gridCenterLat) * METERS_PER_DEGREE_LAT;
+
+		return { x, y };
+	}
+
+	/**
+	 * Interpolates between two hex colors.
+	 */
+	function interpolateColor(color1: string, color2: string, t: number): string {
+		const r1 = parseInt(color1.slice(1, 3), 16);
+		const g1 = parseInt(color1.slice(3, 5), 16);
+		const b1 = parseInt(color1.slice(5, 7), 16);
+
+		const r2 = parseInt(color2.slice(1, 3), 16);
+		const g2 = parseInt(color2.slice(3, 5), 16);
+		const b2 = parseInt(color2.slice(5, 7), 16);
+
+		const r = Math.round(r1 + (r2 - r1) * t);
+		const g = Math.round(g1 + (g2 - g1) * t);
+		const b = Math.round(b1 + (b2 - b1) * t);
+
+		return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+	}
+
+	/**
+	 * Gets the heatmap color for a given sun-hours value using the color scale.
+	 */
+	function getSunHoursColor(hours: number): string {
+		const stops = colorScale;
+
+		if (hours <= stops[0].hours) return stops[0].color;
+		if (hours >= stops[stops.length - 1].hours) return stops[stops.length - 1].color;
+
+		for (let i = 0; i < stops.length - 1; i++) {
+			if (hours >= stops[i].hours && hours <= stops[i + 1].hours) {
+				const t = (hours - stops[i].hours) / (stops[i + 1].hours - stops[i].hours);
+				return interpolateColor(stops[i].color, stops[i + 1].color, t);
+			}
+		}
+
+		return stops[stops.length - 1].color;
+	}
+
+	/**
+	 * Represents a heatmap cell with isometric screen coordinates and color.
+	 */
+	interface HeatmapCell {
+		id: string;
+		corners: Array<{ x: number; y: number }>;
+		color: string;
+		sunHours: number;
+	}
+
+	/**
+	 * Computed heatmap cells derived from the exposure grid.
+	 * Converts grid cells to isometric polygons with appropriate colors.
+	 * Uses a coarser resolution for isometric view to improve performance.
+	 */
+	const heatmapCells = $derived.by<HeatmapCell[]>(() => {
+		if (!exposureGrid || displayMode !== 'heatmap') return [];
+
+		const grid = exposureGrid;
+		const { bounds, width: gridWidth, height: gridHeight, values } = grid;
+
+		// Calculate grid center for coordinate conversion
+		const centerLat = (bounds.south + bounds.north) / 2;
+		const centerLng = (bounds.west + bounds.east) / 2;
+
+		// For isometric view, we may want to use coarser resolution if grid is large
+		// Skip cells to maintain performance (every 2nd cell if grid is large)
+		const skipFactor = Math.max(1, Math.floor(Math.max(gridWidth, gridHeight) / 40));
+
+		const cells: HeatmapCell[] = [];
+
+		for (let row = 0; row < gridHeight; row += skipFactor) {
+			for (let col = 0; col < gridWidth; col += skipFactor) {
+				// Calculate cell bounds in lat/lng
+				const latFraction = row / gridHeight;
+				const lngFraction = col / gridWidth;
+				const latFractionNext = Math.min(1, (row + skipFactor) / gridHeight);
+				const lngFractionNext = Math.min(1, (col + skipFactor) / gridWidth);
+
+				const south = bounds.south + latFraction * (bounds.north - bounds.south);
+				const north = bounds.south + latFractionNext * (bounds.north - bounds.south);
+				const west = bounds.west + lngFraction * (bounds.east - bounds.west);
+				const east = bounds.west + lngFractionNext * (bounds.east - bounds.west);
+
+				// Calculate average sun hours for this (possibly merged) cell
+				let totalHours = 0;
+				let count = 0;
+				for (let r = row; r < Math.min(row + skipFactor, gridHeight); r++) {
+					for (let c = col; c < Math.min(col + skipFactor, gridWidth); c++) {
+						totalHours += values[r * gridWidth + c];
+						count++;
+					}
+				}
+				const avgHours = count > 0 ? totalHours / count : 0;
+
+				// Convert corners to world coordinates (meters from center)
+				const sw = latLngToWorld(south, west, centerLat, centerLng);
+				const se = latLngToWorld(south, east, centerLat, centerLng);
+				const ne = latLngToWorld(north, east, centerLat, centerLng);
+				const nw = latLngToWorld(north, west, centerLat, centerLng);
+
+				// Skip cells that are too far from the visible ground plane
+				const maxDist = groundPlaneSize / 2;
+				if (Math.abs(sw.x) > maxDist * 1.5 || Math.abs(sw.y) > maxDist * 1.5) continue;
+
+				// Convert to isometric screen coordinates (on ground plane z=0)
+				const corners = [
+					toIso(sw.x, sw.y, 0),
+					toIso(se.x, se.y, 0),
+					toIso(ne.x, ne.y, 0),
+					toIso(nw.x, nw.y, 0)
+				];
+
+				cells.push({
+					id: `cell-${row}-${col}`,
+					corners,
+					color: getSunHoursColor(avgHours),
+					sunHours: avgHours
+				});
+			}
+		}
+
+		return cells;
+	});
+
+	/**
+	 * Toggles between shadow view and heatmap view.
+	 */
+	function toggleDisplayMode(): void {
+		displayMode = displayMode === 'shadows' ? 'heatmap' : 'shadows';
+	}
 </script>
 
 <div class="isometric-view">
 	<div class="toolbar">
 		<div class="view-info">
 			<span class="view-label">Isometric View</span>
-			{#if sunPosition && sunPosition.altitude > 0}
+			{#if displayMode === 'shadows' && sunPosition && sunPosition.altitude > 0}
 				<span class="sun-info">
 					Sun: {Math.round(sunPosition.altitude)}° alt, {Math.round(sunPosition.azimuth)}° az
 				</span>
-			{:else}
+			{:else if displayMode === 'shadows'}
 				<span class="sun-info no-sun">Sun below horizon</span>
+			{:else}
+				<span class="sun-info">Exposure heatmap</span>
 			{/if}
 		</div>
 		<div class="view-controls">
+			{#if showModeToggle && exposureGrid}
+				<div class="mode-toggle" role="group" aria-label="Display mode">
+					<button
+						type="button"
+						class="mode-btn"
+						class:active={displayMode === 'shadows'}
+						onclick={() => (displayMode = 'shadows')}
+						aria-pressed={displayMode === 'shadows'}
+					>
+						Shadows
+					</button>
+					<button
+						type="button"
+						class="mode-btn"
+						class:active={displayMode === 'heatmap'}
+						onclick={() => (displayMode = 'heatmap')}
+						aria-pressed={displayMode === 'heatmap'}
+					>
+						Heatmap
+					</button>
+				</div>
+			{/if}
 			<button type="button" class="view-btn" onclick={() => (scale = Math.min(30, scale * 1.25))}>
 				+
 			</button>
@@ -499,44 +688,64 @@
 				stroke-width="1"
 			/>
 
-			<!-- Grid lines on ground plane (in world coordinates, projected) -->
-			<g class="grid-lines" opacity="0.3">
-				{#each Array.from({ length: 9 }, (_, i) => (i - 4) * 10) as offset}
-					<!-- Lines parallel to Y axis (N-S) -->
-					{@const start = toIso(offset, -groundPlaneSize / 2, 0)}
-					{@const end = toIso(offset, groundPlaneSize / 2, 0)}
-					<line
-						x1={start.x}
-						y1={start.y}
-						x2={end.x}
-						y2={end.y}
-						stroke="#6b7280"
-						stroke-width={offset === 0 ? 1.5 : 0.5}
-					/>
+			<!-- Grid lines on ground plane (in world coordinates, projected) - only in shadow mode -->
+			{#if displayMode === 'shadows'}
+				<g class="grid-lines" opacity="0.3">
+					{#each Array.from({ length: 9 }, (_, i) => (i - 4) * 10) as offset}
+						<!-- Lines parallel to Y axis (N-S) -->
+						{@const start = toIso(offset, -groundPlaneSize / 2, 0)}
+						{@const end = toIso(offset, groundPlaneSize / 2, 0)}
+						<line
+							x1={start.x}
+							y1={start.y}
+							x2={end.x}
+							y2={end.y}
+							stroke="#6b7280"
+							stroke-width={offset === 0 ? 1.5 : 0.5}
+						/>
 
-					<!-- Lines parallel to X axis (E-W) -->
-					{@const start2 = toIso(-groundPlaneSize / 2, offset, 0)}
-					{@const end2 = toIso(groundPlaneSize / 2, offset, 0)}
-					<line
-						x1={start2.x}
-						y1={start2.y}
-						x2={end2.x}
-						y2={end2.y}
-						stroke="#6b7280"
-						stroke-width={offset === 0 ? 1.5 : 0.5}
+						<!-- Lines parallel to X axis (E-W) -->
+						{@const start2 = toIso(-groundPlaneSize / 2, offset, 0)}
+						{@const end2 = toIso(groundPlaneSize / 2, offset, 0)}
+						<line
+							x1={start2.x}
+							y1={start2.y}
+							x2={end2.x}
+							y2={end2.y}
+							stroke="#6b7280"
+							stroke-width={offset === 0 ? 1.5 : 0.5}
+						/>
+					{/each}
+				</g>
+			{/if}
+
+			<!-- Heatmap cells (render when in heatmap mode) -->
+			{#if displayMode === 'heatmap' && heatmapCells.length > 0}
+				<g class="heatmap-layer">
+					{#each heatmapCells as cell (cell.id)}
+						<polygon
+							points={pointsString(cell.corners)}
+							fill={cell.color}
+							fill-opacity="0.7"
+							stroke={cell.color}
+							stroke-width="0.5"
+							stroke-opacity="0.3"
+						/>
+					{/each}
+				</g>
+			{/if}
+
+			<!-- Shadow polygons (render before obstacles for correct layering) - only in shadow mode -->
+			{#if displayMode === 'shadows'}
+				{#each shadows as shadow (shadow.obstacleId)}
+					{@const screenVertices = shadowToScreen(shadow)}
+					<polygon
+						points={pointsString(screenVertices)}
+						fill="rgba(0, 0, 0, {shadow.shadeIntensity * 0.4})"
+						stroke="none"
 					/>
 				{/each}
-			</g>
-
-			<!-- Shadow polygons (render before obstacles for correct layering) -->
-			{#each shadows as shadow (shadow.obstacleId)}
-				{@const screenVertices = shadowToScreen(shadow)}
-				<polygon
-					points={pointsString(screenVertices)}
-					fill="rgba(0, 0, 0, {shadow.shadeIntensity * 0.4})"
-					stroke="none"
-				/>
-			{/each}
+			{/if}
 
 			<!-- Obstacles (sorted back-to-front) -->
 			{#each sortedObstacles as obstacle (obstacle.id)}
@@ -773,10 +982,42 @@
 				</g>
 			{/if}
 		</svg>
+
+		<!-- Heatmap legend (shown when in heatmap mode) -->
+		{#if displayMode === 'heatmap' && exposureGrid}
+			<div class="heatmap-legend">
+				<div class="legend-title">Sun Exposure</div>
+				<div class="legend-scale">
+					<div
+						class="legend-gradient"
+						style="background: linear-gradient(to right, #4a90d9, #7bc47f, #f7c948, #ff6b35);"
+					></div>
+					<div class="legend-labels">
+						<span>0h</span>
+						<span>2h</span>
+						<span>4h</span>
+						<span>6h+</span>
+					</div>
+				</div>
+				<div class="legend-categories">
+					<span class="cat-shade">Full shade</span>
+					<span class="cat-part-shade">Part shade</span>
+					<span class="cat-part-sun">Part sun</span>
+					<span class="cat-full-sun">Full sun</span>
+				</div>
+			</div>
+		{/if}
 	</div>
 </div>
 
 <script lang="ts" module>
+	/**
+	 * Display mode for the isometric view.
+	 * - 'shadows': Shows real-time shadows based on sun position
+	 * - 'heatmap': Shows aggregated sun exposure as a color-coded ground overlay
+	 */
+	export type IsometricDisplayMode = 'shadows' | 'heatmap';
+
 	/**
 	 * Converts a compass bearing to a direction label.
 	 */
@@ -907,5 +1148,104 @@
 
 	.grid-lines {
 		pointer-events: none;
+	}
+
+	.heatmap-layer {
+		pointer-events: none;
+	}
+
+	/* Mode toggle button group */
+	.mode-toggle {
+		display: flex;
+		background: #e7e5e4;
+		border-radius: 4px;
+		padding: 2px;
+		margin-right: 0.5rem;
+	}
+
+	.mode-btn {
+		padding: 0.25rem 0.5rem;
+		background: transparent;
+		border: none;
+		border-radius: 3px;
+		font-size: 0.75rem;
+		font-weight: 500;
+		color: #57534e;
+		cursor: pointer;
+		transition: all 0.15s ease;
+	}
+
+	.mode-btn:hover {
+		color: #1c1917;
+	}
+
+	.mode-btn.active {
+		background: white;
+		color: #1c1917;
+		box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+	}
+
+	/* Heatmap legend overlay */
+	.heatmap-legend {
+		position: absolute;
+		bottom: 12px;
+		left: 12px;
+		background: rgba(255, 255, 255, 0.95);
+		border: 1px solid #d6d3d1;
+		border-radius: 6px;
+		padding: 0.5rem 0.75rem;
+		font-size: 0.75rem;
+		pointer-events: none;
+		max-width: 180px;
+	}
+
+	.legend-title {
+		font-weight: 600;
+		color: #1c1917;
+		margin-bottom: 0.375rem;
+	}
+
+	.legend-scale {
+		display: flex;
+		flex-direction: column;
+		gap: 0.125rem;
+	}
+
+	.legend-gradient {
+		height: 10px;
+		border-radius: 2px;
+		border: 1px solid #d6d3d1;
+	}
+
+	.legend-labels {
+		display: flex;
+		justify-content: space-between;
+		font-size: 0.625rem;
+		color: #57534e;
+		font-family: ui-monospace, monospace;
+	}
+
+	.legend-categories {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.25rem 0.5rem;
+		margin-top: 0.375rem;
+		font-size: 0.625rem;
+	}
+
+	.cat-shade {
+		color: #2563eb;
+	}
+
+	.cat-part-shade {
+		color: #16a34a;
+	}
+
+	.cat-part-sun {
+		color: #ca8a04;
+	}
+
+	.cat-full-sun {
+		color: #c2410c;
 	}
 </style>

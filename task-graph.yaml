@@ -1,5 +1,5 @@
 version: "1.0"
-last_updated: "2026-01-29"
+last_updated: "2026-02-01"
 milestones:
   - id: M1
     title: DAG Introspection
@@ -47,115 +47,175 @@ milestones:
     status: complete
 stories: []
 nodes:
-  - id: T-019-01
-    title: Research full app integration approach
-    story: S-019
+  - id: T-022-00
+    title: Create garden planner view exposing MapPicker features
+    story: S-022
     description: |-
-      The following components exist but are not wired together:
+      S-020 built powerful features into MapPicker:
+      - ShadeMap layer with real terrain/building shadows
+      - Tree placement with draggable markers
+      - Tree shadow compositing
+      - Observation point selector
+      - Time scrubber for shadow animation
+      - localStorage persistence
 
-      | Component | Location | Purpose |
-      |-----------|----------|---------|
-      | PlotViewer | `src/lib/components/PlotViewer.svelte` | Wraps PlotEditor + IsometricView + TimeScrubber |
-      | PlotEditor | `src/lib/components/PlotEditor.svelte` | Obstacle placement UI |
-      | IsometricView | `src/lib/components/IsometricView.svelte` | 3D shadow visualization |
-      | TimeScrubber | `src/lib/components/TimeScrubber.svelte` | Time control for shadow animation |
-      | Results page | `src/routes/results/+page.svelte` | Shows sun data, climate, recommendations |
-      | Shade calc | `src/lib/solar/sun-hours-shade.ts` | Calculates effective sun hours with obstacles |
-      | Recommendations | `src/lib/plants/recommendations.ts` | Generates plant suggestions |
-
-      The results page currently shows theoretical sun hours. It needs to incorporate obstacle/slope data and show effective sun hours instead.
+      **None of these are visible to users.** LocationInput uses MapPicker with default props, which hides all the planning features. The component works, but there's no UI path to use it.
     priority: 1
     complexity: M
     status: complete
     assignee: null
-    output: docs/knowledge/research/app-integration.md
-    path: docs/active/tickets/T-019-01-integration-research.md
-  - id: T-019-02
-    title: Integrate PlotViewer into results page
-    story: S-019
-    description: Research at `docs/knowledge/research/app-integration.md` identified the integration point and data flow. PlotViewer should appear between the sun data card (line 124) and climate data section (line 126) in `src/routes/results/+page.svelte`.
+    completed_at: 2026-02-01T00:00:00.000Z
+    path: docs/active/tickets/T-022-00-garden-planner-view.md
+  - id: T-022-01
+    title: Grid-based sun exposure calculation
+    story: S-022
+    description: Extend the point-based sun-hours calculation to compute exposure across a grid of points, producing data suitable for heatmap rendering.
+    priority: 1
+    complexity: L
+    status: ready
+    assignee: null
+    path: docs/active/tickets/T-022-01-heatmap-grid-calculation.md
+  - id: T-022-02
+    title: Heatmap rendering layer
+    story: S-022
+    description: Render the exposure grid as a color-coded heatmap overlay on the Leaflet map.
+    priority: 2
+    complexity: M
+    status: pending
+    assignee: null
+    path: docs/active/tickets/T-022-02-heatmap-renderer.md
+  - id: T-022-03
+    title: Analysis period selector
+    story: S-022
+    description: UI component for selecting the date range used in heatmap calculation.
+    priority: 2
+    complexity: S
+    status: pending
+    assignee: null
+    path: docs/active/tickets/T-022-03-period-selector.md
+  - id: T-022-04
+    title: Click-to-inspect sun exposure
+    story: S-022
+    description: Allow users to click anywhere on the heatmap to see exact sun-hours value and plant suggestions for that spot.
+    priority: 3
+    complexity: S
+    status: pending
+    assignee: null
+    path: docs/active/tickets/T-022-04-click-to-inspect.md
+  - id: T-022-05
+    title: Reactive heatmap updates
+    story: S-022
+    description: Heatmap updates automatically when user modifies trees, with appropriate debouncing and loading states.
+    priority: 3
+    complexity: M
+    status: pending
+    assignee: null
+    path: docs/active/tickets/T-022-05-reactive-updates.md
+  - id: T-022-06
+    title: Isometric view heatmap
+    story: S-022
+    description: Display the sun exposure heatmap in the isometric 3D view, projected onto the ground plane.
+    priority: 4
+    complexity: M
+    status: complete
+    assignee: null
+    completed_at: 2026-02-01T00:00:00.000Z
+    path: docs/active/tickets/T-022-06-isometric-heatmap.md
+  - id: T-023-01
+    title: Phase Navigation UI
+    story: S-023
+    description: Transform the results page from a dashboard into a stepped four-phase flow with persistent map canvas and dynamic phase panels.
     priority: 1
     complexity: M
     status: complete
     assignee: null
-    output: src/routes/results/+page.svelte
-    path: docs/active/tickets/T-019-02-plotviewer-integration.md
-  - id: T-019-03
-    title: Connect shade calculations to recommendations
-    story: S-019
-    description: Research at `docs/knowledge/research/app-integration.md` section R3 documents the shade calculation API. The key function is `getDailySunHoursWithShade()` at `sun-hours-shade.ts:54-108`.
+    path: docs/active/tickets/T-023-01-phase-navigation.md
+    completed_at: "2026-01-31T00:00:00.000Z"
+  - id: T-023-02
+    title: Zone Marking UI
+    story: S-023
+    description: Enable users to define rectangular planting zones on the map. Each zone captures the sun exposure for that area and becomes a container for plant selection.
     priority: 1
     complexity: M
     status: complete
     assignee: null
-    output: src/routes/results/+page.svelte
-    path: docs/active/tickets/T-019-03-shade-adjusted-recommendations.md
-  - id: T-019-04
-    title: Calculate monthly shade data for seasonal chart
-    story: S-019
-    description: Research at `docs/knowledge/research/app-integration.md` section R3 documents `getSeasonalSummaryWithShade()` at `sun-hours-shade.ts:261-332` for calculating shade impact across date ranges.
+    path: docs/active/tickets/T-023-02-zone-marking.md
+    completed_at: "2026-01-31T00:00:00.000Z"
+  - id: T-023-03
+    title: Zone-Aware Plant Selection
+    story: S-023
+    description: Build the plant selection UI that shows validated candidates for each zone based on the zone's sun exposure and user preferences.
     priority: 1
+    complexity: L
+    status: complete
+    assignee: null
+    path: docs/active/tickets/T-023-03-zone-plant-selection.md
+    completed_at: "2026-02-01T00:00:00.000Z"
+  - id: T-023-04
+    title: Plan Builder Canvas
+    story: S-023
+    description: Create a "Plan" view mode that shows a schematic overhead layout of zones with placed plants, rendered at scale with spacing validation.
+    priority: 2
+    complexity: L
+    status: complete
+    assignee: null
+    path: docs/active/tickets/T-023-04-plan-canvas.md
+    completed_at: "2026-01-31T00:00:00.000Z"
+  - id: T-023-05
+    title: PDF Export
+    story: S-023
+    description: Generate a professional planting plan PDF that users can download, print, email, or share. The PDF is the tangible deliverable that coordinates homeowner, designer, and landscaper.
+    priority: 2
+    complexity: L
+    status: complete
+    assignee: null
+    path: docs/active/tickets/T-023-05-pdf-export.md
+    completed_at: "2026-01-31T00:00:00.000Z"
+  - id: T-023-06
+    title: Mobile/iPad Optimization
+    story: S-023
+    description: Optimize the plan generation flow for iPad usage in on-site consultations. Lisa needs to walk a client's property with her iPad, mark zones, select plants, and generate a PDF—all with a touch-first interface that works in bright sunlight.
+    priority: 2
     complexity: M
     status: complete
     assignee: null
-    output: src/routes/results/+page.svelte
-    path: docs/active/tickets/T-019-04-monthly-shade-calculation.md
-  - id: T-019-05
-    title: Add localStorage persistence for plot data
-    story: S-019
-    description: Research at `docs/knowledge/research/app-integration.md` section R4 documents the persistence strategy with key format and Svelte 5 patterns.
-    priority: 1
+    path: docs/active/tickets/T-023-06-mobile-optimization.md
+    completed_at: "2026-01-31T00:00:00.000Z"
+  - id: T-023-07
+    title: Extended State Persistence
+    story: S-023
+    description: Extend the localStorage persistence to save the complete plan state—zones, selected plants, current phase, and user preferences—so users can return to their work in progress.
+    priority: 3
     complexity: S
     status: complete
     assignee: null
-    output: src/routes/results/+page.svelte
-    path: docs/active/tickets/T-019-05-localstorage-persistence.md
-  - id: T-019-06
-    title: Optimize PlotViewer for mobile layout
-    story: S-019
-    description: Research at `docs/knowledge/research/app-integration.md` section R5 documents that PlotViewer has a 600px minimum height which consumes the entire viewport on phones. The recommended approach is a collapsed state that expands on tap.
-    priority: 1
-    complexity: M
-    status: complete
-    assignee: null
-    output: src/lib/components/PlotViewer.svelte
-    path: docs/active/tickets/T-019-06-mobile-layout.md
-  - id: T-019-07
-    title: Add integration tests for full flow
-    story: S-019
-    description: Research at `docs/knowledge/research/app-integration.md` section R6 identified gaps in test coverage. Existing tests cover shade calculations and recommendations separately but not the integrated flow.
-    priority: 1
-    complexity: M
-    status: complete
-    assignee: null
-    output: src/lib/integration/results-integration.test.ts
-    path: docs/active/tickets/T-019-07-integration-testing.md
+    path: docs/active/tickets/T-023-07-state-persistence.md
+    completed_at: "2026-02-01T05:00:00.000Z"
 edges:
-  - from: T-019-01
-    to: T-019-02
-  - from: T-019-02
-    to: T-019-03
-  - from: T-019-03
-    to: T-019-04
-  - from: T-019-02
-    to: T-019-05
-  - from: T-019-02
-    to: T-019-06
-  - from: T-019-03
-    to: T-019-07
-  - from: T-019-04
-    to: T-019-07
-  - from: T-019-05
-    to: T-019-07
+  - from: T-022-00
+    to: T-022-01
+  - from: T-022-01
+    to: T-022-02
+  - from: T-022-01
+    to: T-022-03
+  - from: T-022-02
+    to: T-022-04
+  - from: T-022-02
+    to: T-022-05
+  - from: T-022-02
+    to: T-022-06
 meta:
   total_stories: 0
-  total_tasks: 7
+  total_tasks: 14
   total_milestones: 11
   by_status:
-    ready: 0
-    pending: 0
+    ready: 1
+    pending: 4
     in_progress: 0
-    complete: 7
+    complete: 9
     blocked: 0
-  by_priority: {}
+  by_priority:
+    "1": 3
+    "2": 3
+    "3": 0
   by_milestone: {}

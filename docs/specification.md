@@ -1,8 +1,8 @@
 # Solar-Sim Specification
 
 > **Status**: Draft
-> **Last Updated**: 2026-01-27
-> **Phase**: Research & Planning
+> **Last Updated**: 2026-01-31
+> **Phase**: Active Development
 
 This is a living specification document. It will evolve as research findings inform pragmatic solutions. For hardened requirements, see `knowledge/requirements/`.
 
@@ -12,296 +12,215 @@ This is a living specification document. It will evolve as research findings inf
 
 ### 1.1 Purpose
 
-Solar-Sim is a webapp that calculates sun hours and light requirement categories for any location on Earth. It serves gardeners, farmers, and land planners who need accurate solar exposure data without engaging in complex astronomical calculations.
+Solar-Sim is a sales enablement tool for saying "yes" to a planting plan. It generates professional-quality landscape planting plans backed by site-specific sun analysis and validated plant selection, giving users confidence that their plan will actually work.
+
+The sun mapping is the credibility layer. The plant intelligence is the value. The exportable plan you own is the product.
 
 ### 1.2 Core Problem
 
-Determining where to plant based on light requirements involves:
+No one has built a sun map for the residential and small property use case. Existing tools are either too simple (hardiness zones with no spatial resolution), too complex (professional landscape architecture software), or aimed at the wrong audience (solar panel installers optimizing roof placement).
 
-- Understanding solar geometry (sun position varies by latitude, season, time of day)
-- Calculating cumulative daily sun hours for a location
-- Accounting for horizon obstructions and terrain (future consideration)
-- Translating technical data into horticultural categories (full sun, part sun, part shade, full shade)
+The gap in the market is the missing role of someone who audits and validates that a landscape design actually works for a specific lot. Good designers do this implicitly, but it's not systematized, and most skip it because cross-referencing regional plant knowledge with site-specific sun profiles is tedious. The Sunset Western Garden book is 768 pages. Checking climate zones, sun exposure, soil type, water requirements, mature size, and bloom timing for 20 candidate plants across 5 planting areas is a full day of work. Software makes it instant.
 
-This math is well-documented but tedious to implement correctly. Solar-Sim abstracts this complexity.
+### 1.3 Product Thesis
 
-### 1.3 Target Users
+**For homeowners**: Get the plant research a good designer would do, before you hire one—or instead of hiring one.
 
-| User Type | Needs |
-|-----------|-------|
-| Home gardener | Quick sun/shade assessment for planting decisions |
-| Market farmer | Seasonal planning for crop placement |
-| Landscape designer | Site analysis for client proposals |
-| Permaculture planner | Understanding microclimates and sun patterns |
+**For designers**: Skip the validation tedium, start with plants that actually work, focus on aesthetics.
+
+**For landscapers**: Clear specs, no ambiguity, fewer callbacks when plants die.
+
+### 1.4 Target Users
+
+Every user is trying to reach the same endpoint: confidence that a plan will work. They arrive from different directions.
+
+| User Type | Question They're Answering |
+|-----------|---------------------------|
+| Homeowner / DIY gardener | "Can I do this myself? Will it work?" |
+| Landscape designer | "Will this design actually work for this site?" |
+| Landscaper admin / sales | "Can I close this lead today with a credible proposal?" |
+| Landscaper crew | "Do I have clear specs to execute?" |
+| Nursery staff | "What should I recommend for their specific site?" |
+| Permaculture practitioner | "How do I design food forests and guilds for this microclimate?" |
+
+### 1.5 The Landscaper Power Couple
+
+A concrete persona that captures the business value: the husband-wife landscaper team where he runs the crew and does installs, while she handles admin, scheduling, and client communication. Currently she can't do initial consultations because she doesn't have 20 years of plant knowledge. With Solar-Sim, she can meet with a homeowner, pull up their address, walk the property with an iPad, generate a plant palette on-site, and print a take-home plan that evening. She becomes a demand generation engine. Initial consults that required the expert can now be handled by the admin, freeing him to stay on job sites. For a designer doing 20 projects a year, 3 hours saved per project is 60 hours recovered—enough to take on 2-3 more projects annually.
+
+### 1.6 Data Ownership
+
+A critical differentiator is that users own their data. Many people avoid planning tools because they don't want to be locked into a platform or subscription. "If you're going to take my data about my property, I own it—I don't want to be stuck when your weird app goes down." Solar-Sim addresses this directly: export everything, we don't hold your garden hostage. The plan is yours to print, share, or hand to any landscaper.
 
 ---
 
-## 2. Technology Stack
+## 2. Value Stack
 
-### 2.1 Core Stack
+The product delivers value in layers, each building on the one below.
+
+**Layer 1: Sun Mapping (the hook)** — Credible site analysis that earns trust. Free, instant, proves we know what we're talking about.
+
+**Layer 2: Plant Intelligence (the moat)** — Data-driven suggestions validated against regional knowledge (starting with Sunset Western Garden zones). Cross-reference sun requirements, water needs, mature size, bloom timing. This is genuinely hard to replicate, which makes it defensible.
+
+**Layer 3: Plan Generation (the product)** — Professional-quality planting plan you own. Overhead view, plant schedule, spacing notes. Exportable PDF that works for DIY, designers, or landscaper crews.
+
+**Layer 4: Marketplace (future)** — Connect with landscapers, source plants from local nurseries, find rare specimens. The plan becomes a coordination layer between homeowner, landscaper, and supplier.
+
+---
+
+## 3. Technology Stack
+
+### 3.1 Core Stack
 
 | Layer | Technology | Rationale |
 |-------|------------|-----------|
 | Framework | SvelteKit | Fast, lightweight, good DX |
 | Deployment | Cloudflare Workers | Edge deployment, low latency globally |
 | Computation | Client-side | Reduces server load, enables offline potential |
+| Maps | Leaflet + ShadeMap | Real terrain/building shadows, tree placement |
+| Plant Data | Sunset Western Garden | Regional authority, comprehensive coverage |
 
-### 2.2 Key Libraries
-
-> **TODO**: Research phase will identify optimal libraries for:
-> - Solar position calculations (SunCalc, solar-calculator, or custom)
-> - Date/time handling with timezone support
-> - Geolocation and coordinate handling
-> - Visualization (Canvas, SVG, or WebGL)
-
-### 2.3 Constraints
+### 3.2 Constraints
 
 - **Bundle size**: Must remain edge-deployable (Workers have size limits)
 - **No heavy backend**: Computation should be client-feasible
 - **Offline-friendly**: Core calculations should work without network
+- **Mobile-ready**: Must work on iPad for on-site consultations
 
 ---
 
-## 3. Core Features
+## 4. Core Features
 
-### 3.1 Location Input
+### 4.1 Site Analysis (Layer 1)
 
-**Description**: User provides a location for analysis.
+The foundation: understand the sun profile for a specific property.
 
-**Input methods**:
-- [ ] Manual coordinate entry (lat/lng)
-- [ ] Address/place search (geocoding)
-- [ ] Interactive map selection
-- [ ] Browser geolocation (with permission)
+**Location input** supports address search, interactive map selection, coordinate entry, and browser geolocation. The system auto-detects timezone and validates coordinates.
 
-**Output**: Validated coordinates with timezone inference.
+**Sun mapping** calculates sun position (altitude, azimuth) for any time using NOAA-based algorithms. It integrates solar altitude over daylight hours to compute daily sun hours, then aggregates across date ranges for seasonal analysis.
 
-### 3.2 Solar Position Calculation
+**Shadow modeling** combines multiple sources: ShadeMap API provides precomputed shadows from terrain and buildings, while the app calculates shadows from user-placed trees in real-time. The result is a composite view of actual sun exposure accounting for real-world obstructions.
 
-**Description**: Calculate sun position (altitude, azimuth) for any time at the given location.
+**Light categories** translate sun hours into horticultural standards: Full Sun (6+ hours), Part Sun (4-6 hours), Part Shade (2-4 hours), and Full Shade (<2 hours).
 
-**Inputs**:
-- Latitude, longitude
-- Date and time
-- Timezone
+### 4.2 Plant Intelligence (Layer 2)
 
-**Outputs**:
-- Solar altitude (degrees above horizon)
-- Solar azimuth (compass bearing)
-- Sunrise, sunset, solar noon times
-- Day length
+The moat: validated plant suggestions based on site conditions.
 
-**Algorithm considerations**:
-> **TODO**: Research required on accuracy vs. complexity tradeoffs
-> - NOAA solar calculator algorithms
-> - Astronomical almanac methods
-> - Simplified approximations vs. full ephemeris
+**Regional plant database** starts with Sunset Western Garden as the authoritative source for western US. Each plant entry includes climate zone compatibility, sun/water/soil requirements, mature size, and bloom timing.
 
-### 3.3 Sun Hours Calculation
+**Candidate generation** inverts the typical design process. Instead of "design first, hope it works," the system generates plants that would actually work for each zone of the property, filtered by user preferences (native, edible, low-maintenance, deer-resistant, etc.).
 
-**Description**: Calculate total hours of direct sunlight for a location on a given date or across a date range.
+**Validation engine** cross-references multiple constraints: Sunset climate zone, sun exposure per bed, water requirements, spacing needs, and seasonal interest. What takes a designer hours to research manually becomes instant.
 
-**Approach**:
-- Integrate solar altitude over daylight hours
-- Count hours where altitude > 0° (or configurable horizon angle)
-- Aggregate across date ranges for seasonal analysis
+### 4.3 Plan Generation (Layer 3)
 
-**Output categories** (horticultural standard):
-| Category | Sun Hours/Day | Typical Use |
-|----------|---------------|-------------|
-| Full Sun | 6+ hours | Tomatoes, peppers, most vegetables |
-| Part Sun | 4-6 hours | Lettuce, herbs, some flowers |
-| Part Shade | 2-4 hours | Shade-tolerant vegetables, ferns |
-| Full Shade | <2 hours | Hostas, mosses, woodland plants |
+The product: a professional planting plan you own.
 
-### 3.4 Visualization
+**Plan builder** presents an overhead view where users drag validated plants onto their property. The system checks spacing and compatibility as they work.
 
-**Description**: Visual representation of sun path and exposure.
+**Output formats** include a visual overhead plan, a plant schedule with quantities and sizes, spacing notes, and a PDF export. The plan works equally well for DIY installation, handing to a designer for refinement, or giving to a landscaper crew for execution.
 
-**Potential visualizations**:
-- [ ] Sun path diagram (altitude vs. azimuth arc)
-- [ ] Shadow simulation for a given time
-- [ ] Daily/seasonal sun hours chart
-- [ ] Calendar heatmap of sun exposure
+**Data portability** is non-negotiable. Users can export everything at any time. No account required for basic functionality. The plan is theirs.
 
-> **TODO**: Determine MVP visualization scope
+### 4.4 Visualization Modes
 
-### 3.5 Results Summary
+Multiple views serve different purposes in building confidence:
 
-**Description**: Actionable output for the user.
+**Map view** (Leaflet + ShadeMap) shows the property with real terrain shadows and tree placements. This is the primary workspace for site analysis.
 
-**Includes**:
-- Light category classification
-- Recommended plant types
-- Key solar events (solstices, equinoxes)
-- Comparison across seasons
+**Heatmap overlay** shows cumulative sun exposure across the growing season as a color gradient. This is the "aha moment" that reveals where to plant what.
+
+**Isometric view** provides a 3D preview of how the landscape will look with shadows. This is the "wow factor" for client presentations.
+
+**Plan view** is the standard overhead layout that landscapers expect. This is the deliverable.
 
 ---
 
-## 4. Architecture
+## 5. Architecture
 
-### 4.1 High-Level Design
+### 5.1 Data Flow
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                      SvelteKit App                      │
-├─────────────────────────────────────────────────────────┤
-│  Routes                                                 │
-│  ├── / (home + location input)                         │
-│  ├── /calculate (results display)                      │
-│  └── /about                                            │
-├─────────────────────────────────────────────────────────┤
-│  Lib                                                    │
-│  ├── solar/        # Sun position math                 │
-│  ├── geo/          # Coordinate & timezone handling    │
-│  ├── categories/   # Light category classification     │
-│  └── components/   # Reusable UI components            │
-├─────────────────────────────────────────────────────────┤
-│  Static Assets                                          │
-│  └── (minimal - computation is code-based)             │
-└─────────────────────────────────────────────────────────┘
-         │
-         ▼
-┌─────────────────────────────────────────────────────────┐
-│              Cloudflare Workers (Edge)                  │
-│  - SSR for initial page load                           │
-│  - API routes if needed (geocoding proxy, etc.)        │
-└─────────────────────────────────────────────────────────┘
-```
-
-### 4.2 Data Flow
+The core flow moves from site analysis to validated candidates to plan output:
 
 ```
-User Input (location)
-       │
-       ▼
-┌──────────────┐
-│  Geocoding   │ ──► Coordinates + Timezone
-└──────────────┘
-       │
-       ▼
-┌──────────────┐
-│ Solar Engine │ ──► Sun positions over time
-└──────────────┘
-       │
-       ▼
-┌──────────────┐
-│  Aggregator  │ ──► Daily/seasonal sun hours
-└──────────────┘
-       │
-       ▼
-┌──────────────┐
-│ Classifier   │ ──► Light category + recommendations
-└──────────────┘
-       │
-       ▼
-┌──────────────┐
-│   Display    │ ──► Visualizations + summary
-└──────────────┘
+Location Input → Sun Analysis → Shadow Modeling → Zone Classification
+                                                          ↓
+Plant Database → Candidate Generation → User Filtering → Plan Builder
+                                                          ↓
+                                              Exportable Plan (PDF, data)
+```
+
+### 5.2 Module Structure
+
+```
+src/lib/
+├── solar/        # Sun position, hours calculation, shadow projection
+├── geo/          # Coordinates, timezone, geocoding
+├── climate/      # Frost dates, hardiness zones, Köppen classification
+├── plants/       # Plant database, recommendation engine
+├── canopy/       # Tree detection from Meta canopy height data
+├── storage/      # localStorage persistence per location
+└── components/   # UI components (MapPicker, PlotEditor, etc.)
 ```
 
 ---
 
-## 5. Multi-Agent Development Workflow
+## 6. Knowledge Layer
 
-This project uses a structured workflow for concurrent agent development.
+### 6.1 Plant Data Sources
 
-### 5.1 Document Hierarchy
+The primary source for plant intelligence is the Sunset Western Garden Book, which provides comprehensive coverage of plants suitable for western US climates organized by Sunset climate zones (more granular than USDA hardiness zones).
 
-```
-specification.md (this file)
-       │
-       ▼
-happy_path.md ──► Defines the target user experience
-       │
-       ▼
-knowledge/requirements/ ──► Hardened PRDs (anchors for spec drift)
-       │
-       ▼
-active/stories/ ──► Feature-level work items (S-NNN-title.md)
-       │
-       ▼
-active/tickets/ ──► Atomic tasks decomposed from stories
-       │
-       ▼
-task-graph.yaml ──► DAG defining execution order + dependencies
-```
+Each plant entry in our database should capture: botanical name, common names, Sunset zones, sun requirement (full sun / part sun / part shade / full shade), water needs, mature height and width, bloom season, and growth habit. Additional metadata like native status, deer resistance, and drought tolerance enables filtering by user preferences.
 
-### 5.2 Task Graph Structure
+### 6.2 Regional Expansion
 
-The `task-graph.yaml` file defines:
+The initial release focuses on Sunset Western Garden coverage. Future expansion could incorporate regional authorities for other areas: the Southeastern Gardening books for the US Southeast, native plant databases for ecological landscaping, and local extension service recommendations.
 
-- **Nodes**: Individual tickets with metadata
-  - `id`: Ticket reference (e.g., `T-001`)
-  - `story`: Parent story reference
-  - `priority`: 1 (highest) to 5 (lowest)
-  - `complexity`: estimated effort (S/M/L/XL)
-  - `status`: pending | in-progress | blocked | complete
+### 6.3 Nursery Integration (Future)
 
-- **Edges**: Dependencies between tickets
-  - A ticket cannot start until its dependencies are complete
-
-### 5.3 Agent Coordination
-
-- **Research agents**: Populate `knowledge/research/` with findings
-- **Planning agents**: Create stories from specification + research
-- **Decomposition agents**: Break stories into tickets
-- **Coding agents**: Implement tickets, guided by task graph
-- **Review agents**: Validate implementations against requirements
-
-### 5.4 Specification Drift
-
-This specification will evolve. When findings contradict initial plans:
-
-1. Document the finding in `knowledge/research/`
-2. Update this specification with rationale
-3. If the change is significant, create/update a PRD in `knowledge/requirements/`
-4. PRDs serve as the "hardened" anchor when specification becomes ambiguous
+Layer 4 of the value stack involves connecting validated plant candidates with actual availability. This is complex because nursery inventory is fragmented (thousands of local nurseries, no universal database, stock changes weekly) and rare specimens are hidden in specialty growers. The plan-as-coordination-layer vision depends on eventually cracking this problem.
 
 ---
 
-## 6. Open Questions
+## 7. Open Questions
 
-> Items requiring research or decisions before implementation.
+### 7.1 Plant Data
 
-### 6.1 Technical
+- [ ] What's the most efficient way to encode Sunset Western Garden data?
+- [ ] How do we handle plants that span multiple light categories (e.g., "full sun to part shade")?
+- [ ] What filtering dimensions matter most to users (native, edible, low-w ater, deer-resistant)?
 
-- [ ] Which solar calculation library/algorithm provides the best accuracy-to-complexity ratio?
-- [ ] How to handle timezone edge cases (locations on timezone borders)?
-- [ ] What's the appropriate time resolution for sun-hour integration (1 min? 5 min? 15 min?)?
-- [ ] Should we support terrain/horizon masking in v1?
+### 7.2 Plan Output
 
-### 6.2 Product
+- [ ] What does the ideal PDF export look like for different audiences (DIY vs. landscaper)?
+- [ ] Should plans include plant sourcing suggestions or stay source-agnostic?
+- [ ] How do we handle plant substitutions when first-choice isn't available?
 
-- [ ] What date range should the default analysis cover (single day vs. year)?
-- [ ] Should we support saving/sharing locations?
-- [ ] Is offline mode a v1 requirement or future enhancement?
+### 7.3 Business Model
 
-### 6.3 Deployment
-
-- [ ] Cloudflare Workers bundle size limits - will solar libraries fit?
-- [ ] Do we need a geocoding API, or can we use browser-based solutions?
+- [ ] Where does free end and paid begin?
+- [ ] Is the primary revenue from consumers, designers, or a marketplace cut?
+- [ ] How do we price for the landscaper-admin persona who uses it for sales enablement?
 
 ---
 
-## 7. References
+## 8. References
 
-> Technical resources for implementation.
+### 8.1 Plant Intelligence
 
-### 7.1 Solar Calculation Resources
+- Sunset Western Garden Book (9th edition) - primary plant database source
+- Sunset Climate Zones - more granular than USDA, accounts for microclimates
 
-- NOAA Solar Calculator: https://gml.noaa.gov/grad/solcalc/
-- Astronomical Algorithms (Jean Meeus) - reference text
-- SunCalc library: https://github.com/mourner/suncalc
+### 8.2 Solar Calculation
 
-### 7.2 Horticultural Standards
+- NOAA Solar Calculator algorithms
+- SunCalc library for sun position
+- ShadeMap API for terrain/building shadows
 
-- USDA Plant Hardiness Zones (for context, not direct use)
-- Standard light requirement categories (full sun, part shade, etc.)
+### 8.3 Related Projects
 
-### 7.3 Related Projects
-
-> **TODO**: Research existing tools for differentiation analysis
+The competitive landscape includes generic sun calculators (too simple), professional landscape CAD (too complex), and solar panel site analysis (wrong audience). The residential gardening niche with site-specific validated plant suggestions is underserved.
 
 ---
 
@@ -321,4 +240,5 @@ This specification will evolve. When findings contradict initial plans:
 
 | Date | Change | Author |
 |------|--------|--------|
+| 2026-01-31 | Major revision: reframed as sales enablement tool, added value stack, updated target users and personas, restructured features around layers | Agent |
 | 2026-01-27 | Initial draft created | Agent |
