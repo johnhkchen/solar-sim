@@ -6,5 +6,9 @@ export default defineConfig({
 	test: {
 		include: ['src/**/*.{test,spec}.{js,ts}', 'tools/**/*.{test,spec}.{js,ts}'],
 		environment: 'node'
+	},
+	server: {
+		host: '0.0.0.0', // Bind to all network interfaces (enables Tailscale access)
+		port: 5173
 	}
 });
