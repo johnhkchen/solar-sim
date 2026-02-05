@@ -68,6 +68,14 @@
 		enableObservationPoint?: boolean;
 		observationPoint?: ObservationPoint;
 		onobservationchange?: (point: ObservationPoint) => void;
+		/** Shadow view mode: 'shadows' shows time-of-day, 'solar-hours' shows heatmap. Default: 'shadows' */
+		shadowViewMode?: 'shadows' | 'solar-hours';
+		/** Callback when shadow view mode changes */
+		onshadowviewmodechange?: (mode: 'shadows' | 'solar-hours') => void;
+		/** Date for shadow/sun exposure analysis. If provided, overrides internal date control. */
+		date?: Date;
+		/** Allow building data fetch from OpenStreetMap. Set to true to enable fetching. Default: false */
+		allowBuildingFetch?: boolean;
 		/** Enable localStorage persistence for trees. Trees will be saved per-location. */
 		persistTrees?: boolean;
 		/** Enable automatic tree detection from canopy height data. */
@@ -111,6 +119,12 @@
 		isAvailable: () => boolean;
 		/** Wait for ShadeMap to finish rendering */
 		waitForIdle: () => Promise<void>;
+		/** Force refresh building data (useful after enabling building fetch) */
+		refreshBuildings: () => void;
+		/** Set observation point calculation state (shows/hides loading indicator) */
+		setObservationCalculating: (isCalculating: boolean) => void;
+		/** Capture the current map view as a data URL image */
+		captureMapImage: () => Promise<string | null>;
 	}
 
 	let {
@@ -124,6 +138,9 @@
 		enableObservationPoint = false,
 		observationPoint = $bindable(undefined),
 		onobservationchange,
+		shadowViewMode = 'shadows',
+		date,
+		allowBuildingFetch = false,
 		persistTrees = false,
 		enableAutoTreeDetection = false,
 		autoTreeDetectionMinZoom = 15,
@@ -169,12 +186,16 @@
 	// Observation point state
 	let observationMarker: L.Marker | null = $state(null);
 	let observationPlacementMode = $state(false);
+	let observationCalculating = $state(false);
 
 	// Tree shadow layer state
 	// Not reactive - just internal tracking of Leaflet polygon objects
 	let treeShadowPolygons: L.Polygon[] = [];
 	let lastShadowUpdateTime = 0;
 	const SHADOW_THROTTLE_MS = 50; // Throttle shadow updates during rapid scrubbing
+	const SHADOW_DEBOUNCE_MS = 1500; // Wait 1.5s after changes before rendering shadows
+	let shadowRenderTimeout: ReturnType<typeof setTimeout> | null = null;
+	let shadowsLoading = $state(false);
 
 	// Derived selected tree for the config panel
 	const selectedTree = $derived(trees.find((t) => t.id === selectedTreeId) ?? null);
@@ -184,7 +205,32 @@
 	let shadowTimeValue = $state(720); // Minutes from midnight, default to noon
 	let shadowsEnabled = $state(true);
 	let shadeMapLoading = $state(false);
+
+	// Building data buffer - reuse at lot-level zoom (20+) to avoid re-fetching tiny areas
+	let lastFetchedBuildings: any[] = [];
+	let lastFetchZoom = 0;
+
+	// Sync internal shadowDate with external date prop (for seasonal comparisons)
+	$effect(() => {
+		if (date) {
+			shadowDate = new Date(date);
+		}
+	});
+
+	// Update ShadeMap layer when shadowDateTime changes (e.g., from seasonal preset changes)
+	$effect(() => {
+		const dt = shadowDateTime; // Track dependency
+		if (shadeMapLayer && shadowsEnabled) {
+			shadeMapLayer.setDate(dt);
+		}
+	});
+
 	let shadeMapError = $state<string | null>(null);
+	let buildingShadowsLoading = $state(false);
+	let buildingFetchProgress = $state<string>('');
+
+	// Store ShadeMapInterface for use in effects
+	let localShadeMapInterface: ShadeMapInterface | null = $state(null);
 
 	// Store provider and L module for use outside onMount
 	let searchProvider: InstanceType<typeof import('leaflet-geosearch').OpenStreetMapProvider> | null =
@@ -319,6 +365,44 @@
 			polygon.remove();
 		}
 		treeShadowPolygons = [];
+	}
+
+	/**
+	 * Schedules a debounced shadow update for geometry changes (trees moved, added, removed).
+	 * Waits for SHADOW_DEBOUNCE_MS before rendering to avoid rendering during active panning/zooming.
+	 */
+	function scheduleTreeShadowUpdate(): void {
+		// Clear any pending shadow render
+		if (shadowRenderTimeout) {
+			clearTimeout(shadowRenderTimeout);
+		}
+
+		// Show loading state
+		shadowsLoading = true;
+
+		// Keep existing shadows visible while waiting
+		// Don't clear them - let the new calculation replace them
+
+		// Schedule the shadow render after debounce period
+		shadowRenderTimeout = setTimeout(() => {
+			updateTreeShadows(true);
+			shadowsLoading = false;
+		}, SHADOW_DEBOUNCE_MS);
+	}
+
+	/**
+	 * Updates tree shadows immediately for time changes.
+	 * No debounce, no loading state - just instant position update.
+	 */
+	function updateTreeShadowsForTimeChange(): void {
+		// Cancel any pending debounced updates
+		if (shadowRenderTimeout) {
+			clearTimeout(shadowRenderTimeout);
+			shadowsLoading = false;
+		}
+
+		// Update shadows immediately without clearing
+		updateTreeShadows(false);
 	}
 
 	/**
@@ -543,34 +627,80 @@
 
 	/**
 	 * Creates the observation point icon (red crosshairs target).
+	 * @param isLoading - Whether the sun exposure calculation is in progress
 	 */
-	function createObservationIcon(): L.DivIcon | null {
+	function createObservationIcon(isLoading = false): L.DivIcon | null {
 		if (!L) return null;
+
+		const loadingRing = isLoading ? `
+			<svg class="loading-ring" style="
+				position: absolute;
+				top: -6px;
+				left: -6px;
+				width: 48px;
+				height: 48px;
+				transform: rotate(-90deg);
+			" viewBox="0 0 48 48">
+				<circle
+					cx="24"
+					cy="24"
+					r="22"
+					fill="none"
+					stroke="rgba(220, 38, 38, 0.2)"
+					stroke-width="2"
+				/>
+				<circle
+					class="progress-circle"
+					cx="24"
+					cy="24"
+					r="22"
+					fill="none"
+					stroke="#dc2626"
+					stroke-width="2"
+					stroke-linecap="round"
+					stroke-dasharray="138.23"
+					stroke-dashoffset="138.23"
+					style="
+						animation: fillProgress 3s ease-in-out infinite;
+						filter: drop-shadow(0 0 4px rgba(220, 38, 38, 0.8));
+					"
+				/>
+			</svg>
+		` : '';
 
 		return L.divIcon({
 			className: 'observation-marker-icon',
 			html: `<div style="
 				width: 36px;
 				height: 36px;
-				background: rgba(220, 38, 38, 0.15);
-				border: 3px solid #dc2626;
-				border-radius: 50%;
-				display: flex;
-				align-items: center;
-				justify-content: center;
-				cursor: move;
-				box-shadow: 0 2px 8px rgba(220, 38, 38, 0.4);
+				position: relative;
 			">
-				<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2.5">
-					<circle cx="12" cy="12" r="3"/>
-					<line x1="12" y1="2" x2="12" y2="6"/>
-					<line x1="12" y1="18" x2="12" y2="22"/>
-					<line x1="2" y1="12" x2="6" y2="12"/>
-					<line x1="18" y1="12" x2="22" y2="12"/>
-				</svg>
+				${loadingRing}
+				<div style="
+					width: 36px;
+					height: 36px;
+					background: rgba(220, 38, 38, 0.15);
+					border: 3px solid #dc2626;
+					border-radius: 50%;
+					display: flex;
+					align-items: center;
+					justify-content: center;
+					cursor: move;
+					box-shadow: 0 2px 8px rgba(220, 38, 38, 0.4);
+					position: relative;
+					z-index: 1;
+				">
+					<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2.5">
+						<circle cx="12" cy="12" r="3"/>
+						<line x1="12" y1="2" x2="12" y2="6"/>
+						<line x1="12" y1="18" x2="12" y2="22"/>
+						<line x1="2" y1="12" x2="6" y2="12"/>
+						<line x1="18" y1="12" x2="22" y2="12"/>
+					</svg>
+				</div>
 			</div>`,
-			iconSize: [36, 36],
-			iconAnchor: [18, 18]
+			iconSize: [48, 48],
+			iconAnchor: [24, 24]
 		});
 	}
 
@@ -585,7 +715,7 @@
 			observationMarker.remove();
 		}
 
-		const icon = createObservationIcon();
+		const icon = createObservationIcon(observationCalculating);
 		if (!icon) return;
 
 		observationMarker = L.marker([lat, lng], {
@@ -883,13 +1013,21 @@
 	function toggleShadows(): void {
 		if (!map || !shadeMapLayer) return;
 
-		if (shadowsEnabled) {
-			map.removeLayer(shadeMapLayer as unknown as L.Layer);
-		} else {
-			map.addLayer(shadeMapLayer as unknown as L.Layer);
-			shadeMapLayer.setDate(shadowDateTime);
+		try {
+			if (shadowsEnabled) {
+				if (map.hasLayer(shadeMapLayer as unknown as L.Layer)) {
+					map.removeLayer(shadeMapLayer as unknown as L.Layer);
+				}
+			} else {
+				if (!map.hasLayer(shadeMapLayer as unknown as L.Layer)) {
+					map.addLayer(shadeMapLayer as unknown as L.Layer);
+					shadeMapLayer.setDate(shadowDateTime);
+				}
+			}
+			shadowsEnabled = !shadowsEnabled;
+		} catch (err) {
+			console.error('Failed to toggle shadows:', err);
 		}
-		shadowsEnabled = !shadowsEnabled;
 	}
 
 	onMount(async () => {
@@ -1017,6 +1155,10 @@
 				date: shadowDateTime,
 				color: '#01112f',
 				opacity: 0.5,
+				maxNativeZoom: 19, // Native rendering up to zoom 19
+				maxZoom: 22, // Allow display up to zoom 22 (will upscale)
+				tileSize: 512, // Larger tiles for better coverage at high zoom
+				zoomOffset: 0, // No zoom offset
 				terrainSource: {
 					tileSize: 256,
 					maxZoom: 15,
@@ -1029,29 +1171,119 @@
 				},
 				// Load building footprints from OpenStreetMap via Overpass API
 				getFeatures: async () => {
-					if (!map || map.getZoom() < 15) {
+					if (!map || map.getZoom() < 16) {
+						// Require higher zoom to reduce area and number of buildings
+						buildingShadowsLoading = false;
 						return [];
 					}
+
+					const currentZoom = map.getZoom();
+
+					// At lot-level zoom (20+), reuse buildings from wider zoom to maintain context
+					// Fetching at this zoom would get too small an area and wreck the heatmap
+					if (currentZoom >= 20 && lastFetchedBuildings.length > 0) {
+						console.log(`[ShadeMap] Zoom ${currentZoom}: Reusing ${lastFetchedBuildings.length} buildings from zoom ${lastFetchZoom} (prevents re-fetch at lot-level)`);
+						buildingShadowsLoading = false;
+						buildingFetchProgress = '';
+						return lastFetchedBuildings;
+					}
+
+					const bounds = map.getBounds();
+					const south = bounds.getSouth();
+					const north = bounds.getNorth();
+					const east = bounds.getEast();
+					const west = bounds.getWest();
+
+					// Create cache key from rounded bounds (to ~10m precision)
+					const cacheKey = `buildings_${south.toFixed(4)}_${west.toFixed(4)}_${north.toFixed(4)}_${east.toFixed(4)}`;
+
+					// Check cache first
 					try {
-						const bounds = map.getBounds();
-						const south = bounds.getSouth();
-						const north = bounds.getNorth();
-						const east = bounds.getEast();
-						const west = bounds.getWest();
+						const cached = localStorage.getItem(cacheKey);
+						if (cached) {
+							const { features, timestamp } = JSON.parse(cached);
+							// Cache valid for 30 days
+							if (Date.now() - timestamp < 30 * 24 * 60 * 60 * 1000) {
+								console.log(`[ShadeMap] Using cached building data (${features.length} buildings)`);
+								buildingShadowsLoading = false;
+								buildingFetchProgress = '';
+								// Store in buffer for reuse at lot-level zoom (20+)
+								lastFetchedBuildings = features;
+								lastFetchZoom = currentZoom;
+								return features;
+							}
+						}
+					} catch (err) {
+						console.warn('[ShadeMap] Cache read failed:', err);
+					}
 
-						// Query Overpass API for buildings in the current view
-						const query = `[out:json][timeout:25];(way["building"](${south},${west},${north},${east}););out body;>;out skel qt;`;
-						const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
+					// If building fetch not allowed, return empty (user needs to confirm site first)
+					if (!allowBuildingFetch) {
+						console.log('[ShadeMap] Building fetch not allowed yet (waiting for site confirmation)');
+						buildingShadowsLoading = false;
+						buildingFetchProgress = '';
+						return [];
+					}
 
-						const response = await fetch(url);
-						if (!response.ok) {
-							console.warn('Overpass API request failed:', response.status);
+					// Show loading indicator
+					buildingShadowsLoading = true;
+					buildingFetchProgress = 'Preparing query...';
+
+					try {
+						// Calculate area to avoid fetching too much data
+						const latDiff = north - south;
+						const lngDiff = east - west;
+						const area = latDiff * lngDiff;
+
+						// Skip if area is too large (even at high zoom)
+						if (area > 0.001) {
+							console.log('[ShadeMap] Area too large, skipping building fetch');
+							buildingShadowsLoading = false;
+							buildingFetchProgress = '';
 							return [];
 						}
 
+						console.log('[ShadeMap] Fetching buildings for area:', { area, zoom: map.getZoom() });
+
+						// Query Overpass API for buildings in the current view
+						buildingFetchProgress = 'Querying OpenStreetMap (may take 10-30s)...';
+						const query = `[out:json][timeout:25];(way["building"](${south},${west},${north},${east}););out body;>;out skel qt;`;
+						const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
+
+						// Add timeout to detect if API is too slow
+						const controller = new AbortController();
+						const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+
+						let response;
+						try {
+							response = await fetch(url, { signal: controller.signal });
+							clearTimeout(timeoutId);
+
+							if (!response.ok) {
+								console.warn('Overpass API request failed:', response.status);
+								buildingShadowsLoading = false;
+								buildingFetchProgress = '';
+								return [];
+							}
+						} catch (fetchErr) {
+							clearTimeout(timeoutId);
+							if (fetchErr instanceof Error && fetchErr.name === 'AbortError') {
+								console.warn('Overpass API request timed out after 30s');
+								buildingFetchProgress = 'Request timed out - try zooming in more';
+								setTimeout(() => {
+									buildingShadowsLoading = false;
+									buildingFetchProgress = '';
+								}, 3000);
+								return [];
+							}
+							throw fetchErr;
+						}
+
+						buildingFetchProgress = 'Parsing response...';
 						const data = await response.json();
 
 						// Convert OSM data to GeoJSON features
+						buildingFetchProgress = `Processing ${data.elements?.length || 0} elements...`;
 						const nodes = new Map<number, { lat: number; lon: number }>();
 						const features: Array<{
 							type: string;
@@ -1067,6 +1299,7 @@
 						}
 
 						// Second pass: build building polygons
+						buildingFetchProgress = `Building geometries...`;
 						for (const element of data.elements) {
 							if (element.type === 'way' && element.tags?.building) {
 								const ring: number[][] = [];
@@ -1105,9 +1338,73 @@
 						}
 
 						console.log(`[ShadeMap] Loaded ${features.length} buildings from OSM`);
+						buildingFetchProgress = `Rendering ${features.length} buildings...`;
+
+						// Cache the results
+						const cacheData = {
+							features,
+							timestamp: Date.now()
+						};
+
+						try {
+							localStorage.setItem(cacheKey, JSON.stringify(cacheData));
+							console.log('[ShadeMap] Cached building data for future use');
+						} catch (err) {
+							// If quota exceeded, clear old building caches and retry
+							if (err instanceof DOMException && err.name === 'QuotaExceededError') {
+								console.warn('[ShadeMap] localStorage quota exceeded, clearing old caches...');
+								try {
+									// Remove old building caches (older than 7 days)
+									const now = Date.now();
+									const maxAge = 7 * 24 * 60 * 60 * 1000; // 7 days
+									const keysToRemove: string[] = [];
+
+									for (let i = 0; i < localStorage.length; i++) {
+										const key = localStorage.key(i);
+										if (key && key.startsWith('buildings_')) {
+											try {
+												const cached = localStorage.getItem(key);
+												if (cached) {
+													const { timestamp } = JSON.parse(cached);
+													if (now - timestamp > maxAge) {
+														keysToRemove.push(key);
+													}
+												}
+											} catch {
+												keysToRemove.push(key); // Remove corrupted entries
+											}
+										}
+									}
+
+									keysToRemove.forEach(key => localStorage.removeItem(key));
+									console.log(`[ShadeMap] Cleared ${keysToRemove.length} old cache entries`);
+
+									// Retry caching with the same data
+									localStorage.setItem(cacheKey, JSON.stringify(cacheData));
+									console.log('[ShadeMap] Cached building data after cleanup');
+								} catch (retryErr) {
+									console.warn('[ShadeMap] Still failed to cache after cleanup:', retryErr);
+								}
+							} else {
+								console.warn('[ShadeMap] Failed to cache building data:', err);
+							}
+						}
+
+						// Small delay to show the final progress message
+						setTimeout(() => {
+							buildingShadowsLoading = false;
+							buildingFetchProgress = '';
+						}, 100);
+
+						// Store in buffer for reuse at lot-level zoom (20+)
+						lastFetchedBuildings = features;
+						lastFetchZoom = currentZoom;
+
 						return features;
 					} catch (err) {
 						console.warn('Failed to load buildings from Overpass:', err);
+						buildingShadowsLoading = false;
+						buildingFetchProgress = '';
 						return [];
 					}
 				}
@@ -1259,6 +1556,25 @@
 
 						if (!gl || !canvas) return null;
 
+						// Debug: Check all canvases on the page
+						const allCanvases = document.querySelectorAll('canvas');
+						console.log(`[getHoursOfSun] Found ${allCanvases.length} canvas elements on page`);
+						allCanvases.forEach((c, i) => {
+							console.log(`  Canvas ${i}: ${c.width}x${c.height}, class="${c.className}", visible=${c.offsetParent !== null}`);
+						});
+						console.log(`[getHoursOfSun] Reading from ShadeMap canvas: ${canvas.width}x${canvas.height}, class="${canvas.className}"`);
+
+						// Check if ShadeMap has other properties that might point to the sun exposure buffer
+						console.log('[getHoursOfSun] ShadeMap sun exposure properties:', {
+							enabled: shadeMapLayer.options?.sunExposure?.enabled,
+							startDate: shadeMapLayer.options?.sunExposure?.startDate,
+							endDate: shadeMapLayer.options?.sunExposure?.endDate,
+							iterations: shadeMapLayer.options?.sunExposure?.iterations,
+							_sunExposureCanvas: shadeMapLayer._sunExposureCanvas !== undefined,
+							_sunExposureTexture: shadeMapLayer._sunExposureTexture !== undefined,
+							_sunExposureBuffer: shadeMapLayer._sunExposureBuffer !== undefined
+						});
+
 						// Read pixel directly using correct Y coordinate
 						// ShadeMap's readPixel uses window.innerHeight which is WRONG when canvas doesn't fill window
 						// WebGL Y-axis is flipped (0 at bottom), and we need to use canvas height, not window height
@@ -1270,16 +1586,97 @@
 							return null;
 						}
 
+						// Force WebGL to finish all pending operations before reading pixels
+						// This ensures the framebuffer is fully rendered and not in an intermediate state
+						console.log('[getHoursOfSun] Calling gl.finish()...');
+						gl.finish();
+
+						// Check for GL errors
+						const glError = gl.getError();
+						console.log(`[getHoursOfSun] GL error after finish: ${glError} (0 = no error)`);
+
+						// Check what framebuffer we're reading from
+						const boundFB = gl.getParameter(gl.FRAMEBUFFER_BINDING);
+						console.log(`[getHoursOfSun] Bound framebuffer: ${boundFB} (null = default/screen)`);
+
+						// Check viewport
+						const viewport = gl.getParameter(gl.VIEWPORT);
+						console.log(`[getHoursOfSun] GL Viewport: [${viewport[0]}, ${viewport[1]}, ${viewport[2]}, ${viewport[3]}]`);
+
+						// Sample a 3x3 grid of pixels around the target to check for coordinate issues
+						const sampleSize = 9;
+						const samples = new Uint8Array(sampleSize * 4);
+						const sampleX = Math.max(0, x - 1);
+						const sampleY = Math.max(0, y - 1);
+						const sampleW = Math.min(3, canvas.width - sampleX);
+						const sampleH = Math.min(3, canvas.height - sampleY);
+						gl.readPixels(sampleX, sampleY, sampleW, sampleH, gl.RGBA, gl.UNSIGNED_BYTE, samples);
+
+						// Log all sampled pixels
+						console.log('[getHoursOfSun] 3x3 pixel sample around target:');
+						for (let dy = 0; dy < sampleH; dy++) {
+							for (let dx = 0; dx < sampleW; dx++) {
+								const idx = (dy * sampleW + dx) * 4;
+								const r = samples[idx];
+								const g = samples[idx + 1];
+								const b = samples[idx + 2];
+								const a = samples[idx + 3];
+								const isCenterPixel = (dx === 1 && dy === 1);
+								console.log(`  [${dx-1},${dy-1}]${isCenterPixel ? ' (TARGET)' : ''}: [${r}, ${g}, ${b}, ${a}]`);
+							}
+						}
+
 						const pixel = new Uint8Array(4);
 						gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+
+						// Check for GL errors after reading
+						const readError = gl.getError();
+						console.log(`[getHoursOfSun] GL error after readPixels: ${readError} (0 = no error)`);
+
+						// Debug: Log canvas and GL state
+						console.log(`[getHoursOfSun] Canvas: ${canvas.width}x${canvas.height}, GL: ${gl.drawingBufferWidth}x${gl.drawingBufferHeight}`);
+						console.log(`[getHoursOfSun] Point: screen(${point.x.toFixed(1)}, ${point.y.toFixed(1)}) -> GL(${x}, ${y})`);
+						console.log(`[getHoursOfSun] Pixel RGBA: [${pixel[0]}, ${pixel[1]}, ${pixel[2]}, ${pixel[3]}]`);
+
+						// Log what the pixel SHOULD look like based on visual heatmap color
+						// Red = lots of sun, Blue = little sun
+						if (pixel[0] > pixel[2]) {
+							console.log('[getHoursOfSun] Pixel is RED-ish (high sun exposure)');
+						} else if (pixel[2] > pixel[0]) {
+							console.log('[getHoursOfSun] Pixel is BLUE-ish (low sun exposure)');
+						} else if (pixel[1] > 0) {
+							console.log('[getHoursOfSun] Pixel is GREEN-ish (medium sun exposure)');
+						} else {
+							console.log('[getHoursOfSun] Pixel is BLACK (no data or error)');
+						}
+
+						// Check if any nearby pixels have different values
+						let hasVariation = false;
+						for (let i = 0; i < sampleSize; i++) {
+							const idx = i * 4;
+							if (samples[idx] !== pixel[0] || samples[idx+1] !== pixel[1] || samples[idx+2] !== pixel[2]) {
+								hasVariation = true;
+								break;
+							}
+						}
+						if (hasVariation) {
+							console.log('[getHoursOfSun] ⚠️  WARNING: Nearby pixels have different colors! Coordinate might be slightly off.');
+						} else {
+							console.log('[getHoursOfSun] ✓ Nearby pixels are consistent');
+						}
 
 						// Decode hours from pixel using ShadeMap's V() formula
 						// V(pixel, 0.5, timeRange) formula from ShadeMap source
 						const sunExposureOpts = shadeMapLayer.options.sunExposure;
-						const startDate = sunExposureOpts.startDate;
-						const endDate = sunExposureOpts.endDate;
+						const startDate = sunExposureOpts?.startDate;
+						const endDate = sunExposureOpts?.endDate;
 
-						if (!startDate || !endDate) return 0;
+						console.log(`[getHoursOfSun] Sun exposure opts:`, { enabled: sunExposureOpts?.enabled, startDate, endDate });
+
+						if (!startDate || !endDate) {
+							console.warn('[getHoursOfSun] No start/end date in sun exposure options');
+							return 0;
+						}
 
 						const timeRange = endDate.getTime() - startDate.getTime();
 						const e = 0.5;
@@ -1290,6 +1687,8 @@
 						const g = Math.min(pixel[1] * o, 255);
 						const b = Math.min(pixel[2] * o, 255);
 
+						console.log(`[getHoursOfSun] Scaled RGB: [${r}, ${g}, ${b}]`);
+
 						let s = 0;
 						if (r + g + b !== 0) {
 							// R channel indicates more sun, B channel indicates less sun
@@ -1299,8 +1698,7 @@
 						const hoursMs = s * timeRange;
 						const hours = Math.abs(hoursMs / 1000 / 3600);
 
-						// Debug logging (can be removed in production)
-						// console.log(`getHoursOfSun: lat=${lat.toFixed(4)} screenX=${point.x} glY=${y} pixel=R${pixel[0]}G${pixel[1]}B${pixel[2]} hours=${hours.toFixed(2)}`);
+						console.log(`[getHoursOfSun] s=${s}, timeRange=${timeRange}ms, hours=${hours.toFixed(2)}`);
 
 						return hours;
 					},
@@ -1322,8 +1720,47 @@
 								resolve();
 							}, 10000);
 						});
+					},
+					refreshBuildings: () => {
+						if (!shadeMapLayer || !map) return;
+						// Force ShadeMap to reload building data by triggering a redraw
+						// Toggle the date to force a re-render which will call getFeatures
+						const currentDate = shadeMapLayer.options.date || new Date();
+						const tempDate = new Date(currentDate.getTime() + 1);
+						shadeMapLayer.setDate(tempDate);
+						shadeMapLayer.setDate(currentDate);
+					},
+					setObservationCalculating: (isCalculating: boolean) => {
+						observationCalculating = isCalculating;
+					},
+					captureMapImage: async (): Promise<string | null> => {
+						if (!map) return null;
+
+						try {
+							// Dynamically import html2canvas
+							const html2canvas = (await import('html2canvas')).default;
+
+							// Get the map container
+							const mapContainer = map.getContainer();
+
+							// Capture the map container as canvas
+							const canvas = await html2canvas(mapContainer, {
+								useCORS: true,
+								allowTaint: true,
+								backgroundColor: null,
+								scale: 1, // 1x scale for performance
+								logging: false
+							});
+
+							// Convert to data URL
+							return canvas.toDataURL('image/png');
+						} catch (err) {
+							console.error('Failed to capture map image:', err);
+							return null;
+						}
 					}
 				};
+				localShadeMapInterface = shadeMapInterface;
 				onshademaready(shadeMapInterface);
 			}
 		} catch (err) {
@@ -1359,6 +1796,11 @@
 		// Clean up auto detection debounce timeout
 		if (autoDetectionDebounceTimeout) {
 			clearTimeout(autoDetectionDebounceTimeout);
+		}
+
+		// Clean up shadow render timeout
+		if (shadowRenderTimeout) {
+			clearTimeout(shadowRenderTimeout);
 		}
 
 		// Remove auto detection listener
@@ -1398,15 +1840,18 @@
 		}
 	});
 
-	// Update shadow layer when time changes
-	// Note: Don't call setDate when sun exposure mode is enabled, as it would
-	// overwrite the sun exposure render with regular shadow mode
+	// Update shadow layer when time changes (only in Time of Day mode)
 	$effect(() => {
-		if (shadeMapLayer && shadowsEnabled && !shadeMapLayer.options?.sunExposure?.enabled) {
+		// Only update time-of-day shadows when in shadows mode
+		if (shadowViewMode !== 'shadows') return;
+
+		if (shadeMapLayer && shadowsEnabled) {
+			// Update ShadeMap to show building/terrain shadows at this time
 			shadeMapLayer.setDate(shadowDateTime);
 		}
-		// Also update tree shadows when time changes
-		updateTreeShadows();
+
+		// Update tree shadows immediately when time changes (smooth scrubbing)
+		updateTreeShadowsForTimeChange();
 	});
 
 	// Update tree shadows when trees change (position, size, or number)
@@ -1414,13 +1859,104 @@
 		// Track trees array for changes
 		void trees.length;
 		void trees.map((t) => `${t.id}:${t.lat}:${t.lng}:${t.height}:${t.canopyWidth}:${t.type}`).join(',');
-		updateTreeShadows(true);
+		// Debounce geometry changes (wait for dragging to finish)
+		scheduleTreeShadowUpdate();
 	});
 
 	// Update tree shadows when shadow toggle changes
 	$effect(() => {
 		void shadowsEnabled;
 		if (map && L) {
+			// Immediate update when toggling shadows on/off
+			if (shadowsEnabled) {
+				updateTreeShadows(true);
+			} else {
+				clearTreeShadows();
+			}
+		}
+	});
+
+	// Manage sun exposure mode based on view mode
+	$effect(() => {
+		const mode = shadowViewMode;
+		const sm = shadeMapLayer;
+		const smInterface = localShadeMapInterface;
+
+		if (!sm || !shadowsEnabled) return;
+
+		if (mode === 'solar-hours') {
+			// SOLAR HOURS MODE: Show heatmap only, no shadows
+
+			// Clear tree shadows (not meaningful in aggregate view)
+			clearTreeShadows();
+
+			// Enable sun exposure heatmap for full day using the proper interface method
+			// This ensures heightMap and terrain data are ready before enabling sun exposure
+			const date = shadowDate;
+			const startOfDay = new Date(date);
+			startOfDay.setHours(0, 0, 0, 0);
+			const endOfDay = new Date(date);
+			endOfDay.setHours(23, 59, 59, 999);
+
+			buildingShadowsLoading = true;
+
+			// Use the proper enableSunExposure method which handles initialization
+			if (smInterface && map) {
+				(async () => {
+					console.log('[ShadeMap] Enabling sun exposure for full day analysis');
+
+					// Store current zoom to restore after enabling sun exposure
+					const currentZoom = map.getZoom();
+					const currentCenter = map.getCenter();
+
+					// At zoom 20+, temporarily zoom to 18 for sun exposure calculation
+					// This ensures minimum area coverage for proper edge effects (magnifying glass principle)
+					const calculationZoom = Math.min(currentZoom, 18);
+
+					if (currentZoom > 18) {
+						console.log(`[ShadeMap] Temporarily zooming to ${calculationZoom} for minimum area coverage (current: ${currentZoom})`);
+						map.setView(currentCenter, calculationZoom, { animate: false });
+						// Brief wait for map to update bounds
+						await new Promise(resolve => setTimeout(resolve, 100));
+					}
+
+					try {
+						await smInterface.enableSunExposure(startOfDay, endOfDay, 24);
+
+						// Restore original zoom after sun exposure is calculated
+						if (currentZoom > 18) {
+							await new Promise(resolve => setTimeout(resolve, 100));
+							map.setView(currentCenter, currentZoom, { animate: false });
+							console.log(`[ShadeMap] Restored zoom to ${currentZoom}`);
+						}
+						console.log('[ShadeMap] Sun exposure enabled successfully');
+						buildingShadowsLoading = false;
+					} catch (err) {
+						// Restore zoom even on error
+						if (currentZoom > 18) {
+							map.setView(currentCenter, currentZoom, { animate: false });
+						}
+						console.error('Failed to enable sun exposure:', err);
+						buildingShadowsLoading = false;
+					}
+				})();
+			} else {
+				console.warn('[ShadeMap] Cannot enable sun exposure - interface not ready');
+				buildingShadowsLoading = false;
+			}
+		} else {
+			// TIME OF DAY MODE: Show shadows at specific time only
+			// (Site phase - for exploring shadow patterns throughout the day/year)
+
+			// Disable sun exposure mode if it was enabled
+			if (smInterface) {
+				smInterface.disableSunExposure();
+			}
+
+			// Show time-of-day building/terrain shadows
+			sm.setDate(shadowDateTime);
+
+			// Show tree shadows for this time
 			updateTreeShadows(true);
 		}
 	});
@@ -1438,6 +1974,18 @@
 			}
 		} else {
 			createObservationMarker(observationPoint.lat, observationPoint.lng);
+		}
+	});
+
+	// Update observation marker icon when calculation state changes
+	$effect(() => {
+		if (!map || !L || !observationMarker || !observationPoint) return;
+
+		// Recreate the icon with the current loading state
+		const isLoading = observationCalculating;
+		const newIcon = createObservationIcon(isLoading);
+		if (newIcon) {
+			observationMarker.setIcon(newIcon);
 		}
 	});
 
@@ -1809,17 +2357,20 @@
 
 			{#if shadeMapError}
 				<div class="shadow-error" role="alert">{shadeMapError}</div>
-			{:else if shadowsEnabled && shadeMapLayer}
+			{:else if shadowsEnabled && shadeMapLayer && shadowViewMode === 'shadows'}
 				<div class="time-controls">
 					<div class="date-control">
 						<label for="shadow-date">Date:</label>
 						<input
 							id="shadow-date"
 							type="date"
-							value={shadowDate.toISOString().split('T')[0]}
+							value={shadowDate instanceof Date && !isNaN(shadowDate.getTime()) ? shadowDate.toISOString().split('T')[0] : new Date().toISOString().split('T')[0]}
 							onchange={(e) => {
 								const target = e.target as HTMLInputElement;
-								shadowDate = new Date(target.value + 'T12:00:00');
+								const newDate = new Date(target.value + 'T12:00:00');
+								if (!isNaN(newDate.getTime())) {
+									shadowDate = newDate;
+								}
 							}}
 						/>
 					</div>
@@ -1851,13 +2402,44 @@
 		<div bind:this={mapContainer} class="map-container" role="application" aria-label="Map"></div>
 
 		{#if autoDetectionLoading}
+			{@const currentZoom = map?.getZoom() ?? 0}
 			<div class="auto-detection-indicator" role="status" aria-live="polite">
 				<span class="auto-detection-spinner" aria-hidden="true"></span>
-				<span>Detecting trees...</span>
+				<div class="loading-info">
+					<span>Detecting trees from satellite data</span>
+					<span class="loading-detail">Analyzing canopy height (zoom {currentZoom.toFixed(0)})</span>
+				</div>
 			</div>
 		{:else if enableAutoTreeDetection && autoDetectionError}
 			<div class="auto-detection-info" role="status">
 				{autoDetectionError}
+			</div>
+		{/if}
+
+		{#if shadowsLoading && shadowsEnabled && trees.length > 0}
+			{@const treeCount = trees.length}
+			{@const currentTime = formatTimeFromMinutes(shadowTimeValue)}
+			{@const currentDate = shadowDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+			<div class="shadow-loading-indicator" role="status" aria-live="polite">
+				<div class="loading-bar">
+					<div class="loading-bar-fill"></div>
+				</div>
+				<span>Calculating shadows for {treeCount} tree{treeCount === 1 ? '' : 's'}</span>
+				<span class="loading-detail">{currentDate} at {currentTime}</span>
+			</div>
+		{/if}
+
+		{#if buildingShadowsLoading}
+			{@const currentZoom = map?.getZoom() ?? 0}
+			<div class="building-loading-indicator" role="status" aria-live="polite">
+				<div class="loading-bar">
+					<div class="loading-bar-fill"></div>
+				</div>
+				<span>Fetching building data from OpenStreetMap</span>
+				{#if buildingFetchProgress}
+					<span class="loading-detail loading-progress">{buildingFetchProgress}</span>
+				{/if}
+				<span class="loading-detail">Zoom level {currentZoom.toFixed(0)}</span>
 			</div>
 		{/if}
 
@@ -2314,11 +2896,11 @@
 		transform: translateX(-50%);
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
-		padding: 0.5rem 1rem;
+		gap: 0.625rem;
+		padding: 0.625rem 1rem;
 		background: rgba(34, 197, 94, 0.95);
 		color: white;
-		border-radius: 4px;
+		border-radius: 6px;
 		font-size: 0.875rem;
 		font-weight: 500;
 		pointer-events: none;
@@ -2333,6 +2915,20 @@
 		border-top-color: white;
 		border-radius: 50%;
 		animation: spin 0.8s linear infinite;
+		flex-shrink: 0;
+	}
+
+	.loading-info {
+		display: flex;
+		flex-direction: column;
+		gap: 0.125rem;
+		align-items: flex-start;
+	}
+
+	.loading-detail {
+		font-size: 0.6875rem;
+		opacity: 0.85;
+		font-weight: 400;
 	}
 
 	.auto-detection-info {
@@ -2350,6 +2946,88 @@
 		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 		max-width: 80%;
 		text-align: center;
+	}
+
+	.shadow-loading-indicator {
+		position: absolute;
+		bottom: 1rem;
+		left: 50%;
+		transform: translateX(-50%);
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.375rem;
+		padding: 0.75rem 1rem 0.625rem;
+		background: rgba(15, 23, 42, 0.9);
+		color: white;
+		border-radius: 6px;
+		font-size: 0.8125rem;
+		font-weight: 500;
+		pointer-events: none;
+		z-index: 1000;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+		min-width: 220px;
+		text-align: center;
+	}
+
+	.shadow-loading-indicator .loading-detail {
+		margin-top: -0.125rem;
+	}
+
+	.loading-bar {
+		width: 100%;
+		height: 4px;
+		background: rgba(255, 255, 255, 0.2);
+		border-radius: 2px;
+		overflow: hidden;
+	}
+
+	.loading-bar-fill {
+		height: 100%;
+		background: linear-gradient(90deg, #3b82f6, #60a5fa, #3b82f6);
+		background-size: 200% 100%;
+		animation: loading-bar-animation 1.5s ease-in-out infinite;
+		border-radius: 2px;
+	}
+
+	@keyframes loading-bar-animation {
+		0% {
+			transform: translateX(-100%);
+			background-position: 0% 50%;
+		}
+		50% {
+			background-position: 100% 50%;
+		}
+		100% {
+			transform: translateX(100%);
+			background-position: 0% 50%;
+		}
+	}
+
+	.building-loading-indicator {
+		position: absolute;
+		bottom: 4.5rem;
+		left: 50%;
+		transform: translateX(-50%);
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.375rem;
+		padding: 0.75rem 1rem 0.625rem;
+		background: rgba(55, 65, 81, 0.9);
+		color: white;
+		border-radius: 6px;
+		font-size: 0.8125rem;
+		font-weight: 500;
+		pointer-events: none;
+		z-index: 1000;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+		min-width: 240px;
+		text-align: center;
+	}
+
+	.building-loading-indicator .loading-detail {
+		margin-top: -0.125rem;
 	}
 
 	.observation-info {
@@ -2652,5 +3330,24 @@
 		.time-labels span:nth-child(4) {
 			display: none; /* Hide 6AM/6PM labels on very small screens */
 		}
+	}
+
+	/* Observation marker loading animation */
+	@keyframes fillProgress {
+		0% {
+			stroke-dashoffset: 138.23;
+		}
+		50% {
+			stroke-dashoffset: 0;
+		}
+		100% {
+			stroke-dashoffset: -138.23;
+		}
+	}
+
+	/* Global animation for observation marker (since icon is in HTML string) */
+	:global(.observation-marker-icon .loading-ring .progress-circle) {
+		animation: fillProgress 3s ease-in-out infinite;
+		filter: drop-shadow(0 0 4px rgba(220, 38, 38, 0.8));
 	}
 </style>

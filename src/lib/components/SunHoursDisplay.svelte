@@ -27,6 +27,8 @@
 		growingSeasonStart?: Date;
 		growingSeasonEnd?: Date;
 		shadeMapInterface?: ShadeMapInterface | null;
+		/** Current shadow view mode from MapPicker. Sun exposure only works in 'solar-hours' mode. */
+		shadowViewMode?: 'shadows' | 'solar-hours';
 	}
 
 	let {
@@ -36,7 +38,8 @@
 		showSeasonalAverage = false,
 		growingSeasonStart,
 		growingSeasonEnd,
-		shadeMapInterface = null
+		shadeMapInterface = null,
+		shadowViewMode = 'shadows'
 	}: SunHoursDisplayProps = $props();
 
 	// Convert LatLng to Coordinates for solar calculations
@@ -50,65 +53,62 @@
 	let shadeMapLoading = $state(false);
 
 	// Query ShadeMap for terrain/building-adjusted sun hours
-	// Enable sun exposure mode and wait for the idle event before querying
+	// Only works in 'solar-hours' mode when sun exposure is enabled by MapPicker
 	$effect(() => {
 		// Track dependencies
 		const sm = shadeMapInterface;
 		const point = observationPoint;
 		const d = date;
+		const mode = shadowViewMode;
 
-		if (!sm || !sm.isAvailable()) {
+		// Only query when in solar-hours mode (MapPicker enables sun exposure)
+		if (!sm || !sm.isAvailable() || mode !== 'solar-hours') {
 			shadeMapSunHours = null;
+			shadeMapLoading = false;
+			sm?.setObservationCalculating?.(false);
 			return;
 		}
 
 		// Run the async query without re-triggering when shadeMapSunHours changes
 		untrack(() => {
 			shadeMapLoading = true;
+			sm.setObservationCalculating?.(true);
 		});
 
 		let cancelled = false;
 
-		// Enable sun exposure mode and wait for idle event
-		const startOfDay = new Date(d);
-		startOfDay.setHours(0, 0, 0, 0);
-		const endOfDay = new Date(d);
-		endOfDay.setHours(23, 59, 59, 999);
-
-		console.log('SunHoursDisplay: Enabling sun exposure mode', { startOfDay, endOfDay });
-
-		// Use async IIFE to await the enableSunExposure promise
+		// Query sun exposure directly - the heatmap is already rendered
+		// MapPicker is responsible for calling enableSunExposure() in solar-hours mode
 		(async () => {
 			try {
-				// Enable sun exposure and wait for idle event
-				await sm.enableSunExposure(startOfDay, endOfDay, 24);
-
-				if (cancelled) return;
-
-				// Additional delay to ensure sun exposure buffer is fully computed
-				await new Promise((resolve) => setTimeout(resolve, 500));
-
-				if (cancelled) return;
-
-				// Now query - sun exposure should be rendered
+				// The sun exposure heatmap is already calculated and rendered on screen
+				// We can read pixels immediately - gl.finish() in getHoursOfSun ensures sync
 				const hours = sm.getHoursOfSun(point.lat, point.lng);
-				console.log('ShadeMap query after idle + delay:', { lat: point.lat, lng: point.lng, hours });
+
+				console.log('SunHoursDisplay: Querying sun exposure', {
+					lat: point.lat,
+					lng: point.lng,
+					hours
+				});
 
 				if (!cancelled) {
 					shadeMapSunHours = hours;
 					shadeMapLoading = false;
+					sm.setObservationCalculating?.(false);
 				}
 			} catch (err) {
-				console.warn('ShadeMap sun exposure failed:', err);
+				console.warn('ShadeMap sun exposure query failed:', err);
 				if (!cancelled) {
 					shadeMapSunHours = null;
 					shadeMapLoading = false;
+					sm.setObservationCalculating?.(false);
 				}
 			}
 		})();
 
 		return () => {
 			cancelled = true;
+			sm?.setObservationCalculating?.(false);
 		};
 	});
 
@@ -133,9 +133,9 @@
 	const breakdown = $derived.by<SunHoursBreakdown>(() => {
 		const baseBreakdown = seasonalResult?.averageBreakdown ?? dailyResult.breakdown;
 
-		// Only use ShadeMap data if it's non-zero (0 likely means sun exposure mode isn't working)
-		// A truly fully-shaded spot is rare and would show with terrain shadows
-		if (shadeMapSunHours !== null && shadeMapSunHours > 0) {
+		// Use ShadeMap data when available (including 0 for fully shaded areas)
+		// null means ShadeMap is unavailable or not in solar-hours mode
+		if (shadeMapSunHours !== null && shadeMapSunHours >= 0) {
 			const theoretical = baseBreakdown.theoretical;
 
 			// ShadeMap gives us hours of sun after terrain/building shadows
@@ -317,7 +317,7 @@
 
 	{#if trees.length > 0}
 		<div class="tree-summary">
-			<span class="tree-count">{trees.length} tree{trees.length === 1 ? '' : 's'}</span>
+			<span class="tree-count">{trees.length} tree{trees.length === 1 ? '' : 's'} included</span>
 			{#if treeShadePercent > 1}
 				<span class="tree-impact">reducing sun by {treeShadePercent.toFixed(0)}%</span>
 			{:else}
@@ -331,7 +331,23 @@
 			<svg class="spinner" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
 				<path d="M21 12a9 9 0 1 1-6.219-8.56" />
 			</svg>
-			<span>Calculating terrain/building shadows...</span>
+			<span>Refining with terrain/building data...</span>
+		</div>
+	{:else if shadowViewMode !== 'solar-hours' && shadeMapInterface?.isAvailable()}
+		<div class="shademap-note hint">
+			<svg
+				xmlns="http://www.w3.org/2000/svg"
+				width="14"
+				height="14"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				stroke-width="2"
+				aria-hidden="true"
+			>
+				<path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+			</svg>
+			<span>Switch to Solar Hours view for terrain/building calculations</span>
 		</div>
 	{:else if shadeMapSunHours === null && !shadeMapInterface?.isAvailable()}
 		<div class="shademap-note">
@@ -349,7 +365,7 @@
 				<line x1="12" y1="8" x2="12" y2="12" />
 				<line x1="12" y1="16" x2="12.01" y2="16" />
 			</svg>
-			<span>Terrain/building shade from map visualization (not included in calculation)</span>
+			<span>Terrain/building shade unavailable (shadow layer not loaded)</span>
 		</div>
 	{/if}
 </div>
@@ -589,6 +605,12 @@
 
 	.shademap-note.loading {
 		background: #e0f2fe;
+		color: #0369a1;
+	}
+
+	.shademap-note.hint {
+		background: #f0f9ff;
+		border: 1px solid #bae6fd;
 		color: #0369a1;
 	}
 

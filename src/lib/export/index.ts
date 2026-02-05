@@ -4,4 +4,9 @@
  * Provides PDF generation and other export capabilities for planting plans.
  */
 
-export { generatePlanPdf, capturePlanImage, type PdfExportData } from './pdf.js';
+export {
+	generatePlanPdf,
+	capturePlanImage,
+	type PdfExportData,
+	type SeasonalShadeImages
+} from './pdf.js';

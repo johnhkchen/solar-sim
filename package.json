@@ -33,6 +33,7 @@
 		"@types/tz-lookup": "^6.1.2",
 		"geo-coordinates-parser": "^1.7.4",
 		"geotiff": "^3.0.0",
+		"html2canvas": "^1.4.1",
 		"jspdf": "^4.0.0",
 		"jspdf-autotable": "^5.0.7",
 		"leaflet": "^1.9.4",

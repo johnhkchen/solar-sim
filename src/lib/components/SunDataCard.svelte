@@ -70,8 +70,6 @@
 			<span class="category-range">{categoryInfo.sunHoursRange}</span>
 		</div>
 
-		<p class="category-description">{categoryInfo.description}</p>
-
 		{#if data.polarCondition === 'normal'}
 			<div class="sun-times">
 				<div class="time-block">
@@ -166,13 +164,6 @@
 		background: #fef3c7;
 		padding: 0.125rem 0.5rem;
 		border-radius: 4px;
-	}
-
-	.category-description {
-		font-size: 0.9375rem;
-		color: #555;
-		margin: 0;
-		line-height: 1.4;
 	}
 
 	.sun-times {

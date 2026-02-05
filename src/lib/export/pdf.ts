@@ -29,6 +29,16 @@ const COLORS = {
 };
 
 /**
+ * Seasonal shade analysis images for PDF export.
+ */
+export interface SeasonalShadeImages {
+	summer: string; // Data URL for summer solstice heatmap
+	winter: string; // Data URL for winter solstice heatmap
+	spring: string; // Data URL for spring equinox heatmap
+	fall: string; // Data URL for fall equinox heatmap
+}
+
+/**
  * Data required for PDF export.
  */
 export interface PdfExportData {
@@ -43,7 +53,8 @@ export interface PdfExportData {
 		end: Date;
 	};
 	zones: Zone[];
-	planImageDataUrl?: string;
+	planImageDataUrl?: string; // Legacy - for future proper plan view
+	seasonalShadeImages?: SeasonalShadeImages; // Seasonal sun exposure analysis
 	generatedAt: Date;
 	hardinessZone?: string;
 	treeCount?: number;
@@ -354,7 +365,7 @@ function addCoverPage(doc: jsPDF, data: PdfExportData): void {
 }
 
 /**
- * Adds the overhead plan page to the PDF.
+ * Adds the shade analysis page to the PDF.
  */
 function addPlanPage(doc: jsPDF, data: PdfExportData, schedule: PlantScheduleEntry[]): void {
 	doc.addPage();
@@ -363,22 +374,49 @@ function addPlanPage(doc: jsPDF, data: PdfExportData, schedule: PlantScheduleEnt
 	// Page title
 	doc.setFontSize(18);
 	doc.setTextColor(...COLORS.text);
-	doc.text('Overhead Plan', MARGIN, y + 10);
+	doc.text('Shade Analysis', MARGIN, y + 10);
 	y += 20;
 
-	// Plan image if available
-	if (data.planImageDataUrl) {
-		const imgWidth = CONTENT_WIDTH;
-		const imgHeight = 120; // Fixed height for plan image
-		doc.addImage(data.planImageDataUrl, 'PNG', MARGIN, y, imgWidth, imgHeight);
+	// Seasonal shade analysis images if available
+	if (data.seasonalShadeImages) {
+		const images = data.seasonalShadeImages;
+		const imgWidth = (CONTENT_WIDTH - 5) / 2; // Two images per row with 5mm gap
+		const imgHeight = imgWidth * 0.6; // 5:3 aspect ratio
+
+		// Row 1: Summer and Winter
+		doc.setFontSize(10);
+		doc.setTextColor(...COLORS.text);
+		doc.text('☀️ Summer (Jun 21)', MARGIN, y);
+		doc.text('❄️ Winter (Dec 21)', MARGIN + imgWidth + 5, y);
+		y += 5;
+
+		doc.addImage(images.summer, 'PNG', MARGIN, y, imgWidth, imgHeight);
+		doc.addImage(images.winter, 'PNG', MARGIN + imgWidth + 5, y, imgWidth, imgHeight);
 		y += imgHeight + 10;
+
+		// Row 2: Spring and Fall
+		doc.setFontSize(10);
+		doc.setTextColor(...COLORS.text);
+		doc.text('🌸 Spring (Mar 20)', MARGIN, y);
+		doc.text('🍂 Fall (Sep 22)', MARGIN + imgWidth + 5, y);
+		y += 5;
+
+		doc.addImage(images.spring, 'PNG', MARGIN, y, imgWidth, imgHeight);
+		doc.addImage(images.fall, 'PNG', MARGIN + imgWidth + 5, y, imgWidth, imgHeight);
+		y += imgHeight + 15;
+
+		// Legend note
+		doc.setFontSize(9);
+		doc.setTextColor(...COLORS.textLight);
+		doc.text('Note: Brighter areas indicate more cumulative sun exposure hours.', MARGIN, y);
+		y += 10;
 	} else {
-		// Placeholder for plan image
+		// Placeholder for shade analysis
 		doc.setFillColor(...COLORS.lightBg);
 		doc.roundedRect(MARGIN, y, CONTENT_WIDTH, 120, 3, 3, 'F');
 		doc.setFontSize(12);
 		doc.setTextColor(...COLORS.textLight);
-		doc.text('Plan view not available', PAGE_WIDTH / 2, y + 60, { align: 'center' });
+		doc.text('Shade analysis not available', PAGE_WIDTH / 2, y + 60, { align: 'center' });
 		y += 130;
 	}
 

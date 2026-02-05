@@ -81,7 +81,12 @@
 		dateToDayOfYear
 	} from '$lib/climate';
 	import { getRecommendations, createRecommendationInput, getPlantById } from '$lib/plants';
-	import { generatePlanPdf, capturePlanImage, type PdfExportData } from '$lib/export';
+	import {
+		generatePlanPdf,
+		capturePlanImage,
+		type PdfExportData,
+		type SeasonalShadeImages
+	} from '$lib/export';
 	import type { PageData } from './$types';
 	import { browser } from '$app/environment';
 
@@ -112,6 +117,8 @@
 		label: 'Growing Season'
 	});
 	let inspectedSpot = $state<InspectedSpot | null>(null);
+	let allowBuildingFetch = $state(true); // Enable building fetch for Site phase shadow exploration
+	let analysisDate = $state(new Date()); // Current date for sun analysis
 
 	// Plants phase state - zones
 	let zones = $state<Zone[]>([]);
@@ -237,6 +244,28 @@
 		const currentIndex = getPhaseIndex(currentPhase);
 		if (currentIndex > 0) {
 			goToPhase(PHASE_ORDER[currentIndex - 1]);
+		}
+	}
+
+	// Seasonal date presets for analysis
+	function setSeasonalDate(season: 'summer' | 'winter' | 'spring' | 'fall' | 'today') {
+		const year = new Date().getFullYear();
+		switch (season) {
+			case 'summer':
+				analysisDate = new Date(year, 5, 21); // June 21 - Summer Solstice
+				break;
+			case 'winter':
+				analysisDate = new Date(year, 11, 21); // December 21 - Winter Solstice
+				break;
+			case 'spring':
+				analysisDate = new Date(year, 2, 20); // March 20 - Spring Equinox
+				break;
+			case 'fall':
+				analysisDate = new Date(year, 8, 22); // September 22 - Fall Equinox
+				break;
+			case 'today':
+				analysisDate = new Date();
+				break;
 		}
 	}
 
@@ -570,10 +599,61 @@
 
 		isExporting = true;
 		try {
-			// Capture plan canvas image if available
+			// Capture plan canvas image if available (legacy)
 			let planImageDataUrl: string | undefined;
 			if (planCanvasRef) {
 				planImageDataUrl = await capturePlanImage(planCanvasRef);
+			}
+
+			// Capture seasonal shade analysis images if in analysis phase
+			let seasonalShadeImages: SeasonalShadeImages | undefined;
+			if (shadeMapInterface && shadeMapInterface.isAvailable() && mapRef) {
+				console.log('Generating seasonal shade analysis images using buffered data...');
+
+				// Store current state to restore later
+				const originalDate = new Date(analysisDate);
+				const currentZoom = mapRef.getZoom();
+
+				// Use zoom 17-19 for optimal ShadeMap rendering (has buffered buildings, no quadtree issues)
+				const captureZoom = currentZoom >= 16 && currentZoom <= 19 ? currentZoom : 18;
+				if (currentZoom !== captureZoom) {
+					mapRef.setZoom(captureZoom);
+					// Brief wait for zoom animation
+					await new Promise(resolve => setTimeout(resolve, 300));
+				}
+
+				// Helper to capture image for a season
+				// Uses buffered building data - no tile reloading needed!
+				const captureSeasonImage = async (season: 'summer' | 'winter' | 'spring' | 'fall'): Promise<string> => {
+					console.log(`Capturing ${season}...`);
+
+					// Set the seasonal date - ShadeMap recalculates using buffered buildings
+					setSeasonalDate(season);
+
+					// Brief wait for sun exposure recalculation (buildings already loaded)
+					await new Promise(resolve => setTimeout(resolve, 400));
+
+					// Capture the map image
+					const imageUrl = await shadeMapInterface.captureMapImage();
+					console.log(`  ${season}: ${imageUrl ? '✓' : '✗'}`);
+					return imageUrl || '';
+				};
+
+				// Capture all four seasons quickly using buffered data
+				const summer = await captureSeasonImage('summer');
+				const winter = await captureSeasonImage('winter');
+				const spring = await captureSeasonImage('spring');
+				const fall = await captureSeasonImage('fall');
+
+				seasonalShadeImages = { summer, winter, spring, fall };
+
+				// Restore original state
+				analysisDate = originalDate;
+				if (currentZoom !== captureZoom) {
+					mapRef.setZoom(currentZoom);
+				}
+
+				console.log('Seasonal shade analysis complete (total ~2 seconds)');
 			}
 
 			const exportData: PdfExportData = {
@@ -588,6 +668,7 @@
 				},
 				zones,
 				planImageDataUrl,
+				seasonalShadeImages,
 				generatedAt: new Date(),
 				hardinessZone: `${hardinessZone.zone}${hardinessZone.subzone || ''}`,
 				treeCount: plannerTrees.length
@@ -647,6 +728,9 @@
 					disableClickHandler={currentPhase === 'plants'}
 					bind:trees={plannerTrees}
 					bind:observationPoint
+					shadowViewMode={currentPhase === 'site' ? 'shadows' : 'solar-hours'}
+					date={currentPhase === 'analysis' ? analysisDate : undefined}
+					{allowBuildingFetch}
 					persistTrees={true}
 					enableAutoTreeDetection={true}
 					onmapready={(m) => (mapRef = m)}
@@ -760,22 +844,6 @@
 			</p>
 		</section>
 
-		<section class="tree-list">
-			<h3>Trees on Property</h3>
-			{#if plannerTrees.length === 0}
-				<p class="empty-state">No trees detected. Click the tree button on the map to add trees manually.</p>
-			{:else}
-				<ul class="trees">
-					{#each plannerTrees as tree}
-						<li class="tree-item">
-							<span class="tree-type">{tree.type}</span>
-							<span class="tree-size">{tree.height}m tall · {tree.canopyWidth}m wide</span>
-						</li>
-					{/each}
-				</ul>
-			{/if}
-		</section>
-
 		<section class="site-status">
 			<div class="status-item" class:complete={plannerTrees.length > 0 || true}>
 				<span class="status-icon">✓</span>
@@ -785,6 +853,36 @@
 				<span class="status-icon">{plannerTrees.length > 0 ? '✓' : '○'}</span>
 				<span>Trees identified ({plannerTrees.length})</span>
 			</div>
+		</section>
+
+		<section class="building-data-note">
+			<p>
+				<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<circle cx="12" cy="12" r="10"/>
+					<line x1="12" y1="16" x2="12" y2="12"/>
+					<line x1="12" y1="8" x2="12.01" y2="8"/>
+				</svg>
+				Use the map controls to explore shadow patterns at different times and dates throughout the year. Building shadows load automatically when zoomed in (zoom 16+).
+			</p>
+		</section>
+
+		<section class="tree-list">
+			<h3>Trees on Property</h3>
+			{#if plannerTrees.length === 0}
+				<p class="empty-state">No trees detected. Auto-detection will find trees when you zoom in.</p>
+			{:else}
+				<details>
+					<summary>{plannerTrees.length} tree{plannerTrees.length === 1 ? '' : 's'} detected</summary>
+					<ul class="trees">
+						{#each plannerTrees as tree}
+							<li class="tree-item">
+								<span class="tree-type">{tree.type}</span>
+								<span class="tree-size">{tree.height}m tall · {tree.canopyWidth}m wide</span>
+							</li>
+						{/each}
+					</ul>
+				</details>
+			{/if}
 		</section>
 
 		{#if zones.length > 0 || completedPhases.length > 0}
@@ -810,14 +908,83 @@
 			<SunDataCard data={sunData} {timezone} />
 		</section>
 
+		<section class="analysis-info">
+			<p>
+				<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<rect x="3" y="3" width="7" height="7"/>
+					<rect x="14" y="3" width="7" height="7"/>
+					<rect x="14" y="14" width="7" height="7"/>
+					<rect x="3" y="14" width="7" height="7"/>
+				</svg>
+				The map shows a <strong>cumulative sun exposure heatmap</strong> (brighter = more sun hours). Place an observation point to get detailed sun hour calculations including tree shadow impact.
+			</p>
+		</section>
+
 		{#if observationPoint && plannerSunHours}
 			<section class="spot-results">
-				<h3>Selected Spot</h3>
+				<div class="spot-header">
+					<h3>Selected Spot</h3>
+					<div class="seasonal-presets">
+						<button
+							type="button"
+							class="preset-btn"
+							class:active={analysisDate.getMonth() === 5 && analysisDate.getDate() === 21}
+							onclick={() => setSeasonalDate('summer')}
+							title="Summer Solstice - Jun 21"
+						>
+							☀️ Summer
+						</button>
+						<button
+							type="button"
+							class="preset-btn"
+							class:active={analysisDate.getMonth() === 11 && analysisDate.getDate() === 21}
+							onclick={() => setSeasonalDate('winter')}
+							title="Winter Solstice - Dec 21"
+						>
+							❄️ Winter
+						</button>
+						<button
+							type="button"
+							class="preset-btn"
+							class:active={analysisDate.getMonth() === 2 && analysisDate.getDate() === 20}
+							onclick={() => setSeasonalDate('spring')}
+							title="Spring Equinox - Mar 20"
+						>
+							🌸 Spring
+						</button>
+						<button
+							type="button"
+							class="preset-btn"
+							class:active={analysisDate.getMonth() === 8 && analysisDate.getDate() === 22}
+							onclick={() => setSeasonalDate('fall')}
+							title="Fall Equinox - Sep 22"
+						>
+							🍂 Fall
+						</button>
+						<button
+							type="button"
+							class="preset-btn"
+							class:active={
+								!(
+									(analysisDate.getMonth() === 5 && analysisDate.getDate() === 21) ||
+									(analysisDate.getMonth() === 11 && analysisDate.getDate() === 21) ||
+									(analysisDate.getMonth() === 2 && analysisDate.getDate() === 20) ||
+									(analysisDate.getMonth() === 8 && analysisDate.getDate() === 22)
+								)
+							}
+							onclick={() => setSeasonalDate('today')}
+							title="Today"
+						>
+							📅 Today
+						</button>
+					</div>
+				</div>
 				<SunHoursDisplay
 					observationPoint={{ lat: observationPoint.lat, lng: observationPoint.lng }}
 					trees={plannerTreeConfigs}
-					date={new Date()}
+					date={analysisDate}
 					{shadeMapInterface}
+					shadowViewMode="solar-hours"
 				/>
 			</section>
 		{:else}
@@ -1005,8 +1172,8 @@
 	}
 
 	.panel-sidebar {
-		width: 40%;
-		max-width: 480px;
+		width: 35%;
+		max-width: 420px;
 		min-width: 320px;
 		border-left: 1px solid #e5e7eb;
 		overflow: hidden;
@@ -1019,7 +1186,7 @@
 
 	.plan-layout.mobile .map-canvas {
 		flex: none;
-		height: 55%;
+		height: 60%;
 	}
 
 	.plan-layout.mobile .panel-sidebar {
@@ -1076,13 +1243,50 @@
 		color: #15803d;
 	}
 
+	.tree-list details {
+		border: 1px solid #e5e7eb;
+		border-radius: 4px;
+		padding: 0.5rem;
+		background: #fafafa;
+	}
+
+	.tree-list summary {
+		cursor: pointer;
+		font-size: 0.875rem;
+		font-weight: 500;
+		color: #166534;
+		user-select: none;
+		list-style: none;
+	}
+
+	.tree-list summary::-webkit-details-marker {
+		display: none;
+	}
+
+	.tree-list summary::before {
+		content: '▶';
+		display: inline-block;
+		margin-right: 0.5rem;
+		transition: transform 0.2s;
+	}
+
+	.tree-list details[open] summary::before {
+		transform: rotate(90deg);
+	}
+
+	.tree-list summary:hover {
+		color: #15803d;
+	}
+
 	.tree-list .trees {
 		list-style: none;
-		margin: 0;
+		margin: 0.5rem 0 0 0;
 		padding: 0;
 		display: flex;
 		flex-direction: column;
-		gap: 0.5rem;
+		gap: 0.375rem;
+		max-height: 200px;
+		overflow-y: auto;
 	}
 
 	.tree-item {
@@ -1145,7 +1349,51 @@
 		border-top: 1px solid #e5e7eb;
 	}
 
+	.building-data-note {
+		margin-top: 1rem;
+		padding: 0.75rem;
+		background: #f0f9ff;
+		border: 1px solid #bae6fd;
+		border-radius: 6px;
+	}
+
+	.building-data-note p {
+		margin: 0;
+		font-size: 0.8125rem;
+		color: #0369a1;
+		display: flex;
+		align-items: flex-start;
+		gap: 0.5rem;
+	}
+
+	.building-data-note svg {
+		flex-shrink: 0;
+		margin-top: 1px;
+	}
+
 	/* Analysis phase */
+	.analysis-info {
+		padding: 0.75rem;
+		background: #f0f9ff;
+		border: 1px solid #bae6fd;
+		border-radius: 6px;
+		margin-bottom: 1rem;
+	}
+
+	.analysis-info p {
+		margin: 0;
+		font-size: 0.8125rem;
+		color: #0369a1;
+		display: flex;
+		align-items: flex-start;
+		gap: 0.5rem;
+	}
+
+	.analysis-info svg {
+		flex-shrink: 0;
+		margin-top: 1px;
+	}
+
 	.climate-cards {
 		display: grid;
 		grid-template-columns: repeat(3, 1fr);
@@ -1186,6 +1434,48 @@
 		margin: 0;
 		font-size: 0.875rem;
 		color: #854d0e;
+	}
+
+	.spot-header {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+		margin-bottom: 0.75rem;
+	}
+
+	.spot-header h3 {
+		margin: 0;
+	}
+
+	.seasonal-presets {
+		display: flex;
+		gap: 0.375rem;
+		flex-wrap: wrap;
+	}
+
+	.preset-btn {
+		padding: 0.375rem 0.625rem;
+		font-size: 0.75rem;
+		font-weight: 500;
+		color: #6b7280;
+		background: white;
+		border: 1px solid #d1d5db;
+		border-radius: 6px;
+		cursor: pointer;
+		transition: all 0.15s;
+		white-space: nowrap;
+	}
+
+	.preset-btn:hover {
+		background: #f9fafb;
+		border-color: #9ca3af;
+	}
+
+	.preset-btn.active {
+		background: #3b82f6;
+		border-color: #3b82f6;
+		color: white;
+		font-weight: 600;
 	}
 
 	/* Plants phase */
