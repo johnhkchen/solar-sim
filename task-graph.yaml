@@ -1,5 +1,5 @@
 version: "1.0"
-last_updated: "2026-02-01"
+last_updated: "2026-02-05"
 milestones:
   - id: M1
     title: DAG Introspection
@@ -129,68 +129,117 @@ nodes:
     complexity: M
     status: complete
     assignee: null
+    completed_at: 2026-01-31T00:00:00.000Z
     path: docs/active/tickets/T-023-01-phase-navigation.md
-    completed_at: "2026-01-31T00:00:00.000Z"
   - id: T-023-02
     title: Zone Marking UI
     story: S-023
     description: Enable users to define rectangular planting zones on the map. Each zone captures the sun exposure for that area and becomes a container for plant selection.
     priority: 1
     complexity: M
-    status: complete
+    status: ready
     assignee: null
     path: docs/active/tickets/T-023-02-zone-marking.md
-    completed_at: "2026-01-31T00:00:00.000Z"
   - id: T-023-03
     title: Zone-Aware Plant Selection
     story: S-023
     description: Build the plant selection UI that shows validated candidates for each zone based on the zone's sun exposure and user preferences.
     priority: 1
     complexity: L
-    status: complete
+    status: ready
     assignee: null
     path: docs/active/tickets/T-023-03-zone-plant-selection.md
-    completed_at: "2026-02-01T00:00:00.000Z"
   - id: T-023-04
     title: Plan Builder Canvas
     story: S-023
     description: Create a "Plan" view mode that shows a schematic overhead layout of zones with placed plants, rendered at scale with spacing validation.
     priority: 2
     complexity: L
-    status: complete
+    status: ready
     assignee: null
     path: docs/active/tickets/T-023-04-plan-canvas.md
-    completed_at: "2026-01-31T00:00:00.000Z"
   - id: T-023-05
     title: PDF Export
     story: S-023
     description: Generate a professional planting plan PDF that users can download, print, email, or share. The PDF is the tangible deliverable that coordinates homeowner, designer, and landscaper.
     priority: 2
     complexity: L
-    status: complete
+    status: ready
     assignee: null
     path: docs/active/tickets/T-023-05-pdf-export.md
-    completed_at: "2026-01-31T00:00:00.000Z"
   - id: T-023-06
     title: Mobile/iPad Optimization
     story: S-023
     description: Optimize the plan generation flow for iPad usage in on-site consultations. Lisa needs to walk a client's property with her iPad, mark zones, select plants, and generate a PDF—all with a touch-first interface that works in bright sunlight.
     priority: 2
     complexity: M
-    status: complete
+    status: ready
     assignee: null
     path: docs/active/tickets/T-023-06-mobile-optimization.md
-    completed_at: "2026-01-31T00:00:00.000Z"
   - id: T-023-07
     title: Extended State Persistence
     story: S-023
     description: Extend the localStorage persistence to save the complete plan state—zones, selected plants, current phase, and user preferences—so users can return to their work in progress.
     priority: 3
     complexity: S
-    status: complete
+    status: ready
     assignee: null
     path: docs/active/tickets/T-023-07-state-persistence.md
-    completed_at: "2026-02-01T05:00:00.000Z"
+  - id: T-024-01
+    title: Verify Django backend stack works end-to-end
+    story: S-024
+    description: Clean rebuild and validate the Django backend before frontend integration begins. The fixes for cache config and dev environment have been applied; this ticket confirms they work.
+    priority: 1
+    complexity: S
+    status: complete
+    assignee: null
+    completed_at: "2026-02-05T08:17:36.832Z"
+    path: docs/active/tickets/T-024-01-verify-backend-stack.md
+  - id: T-024-02
+    title: Create SvelteKit API client module
+    story: S-024
+    description: Create a centralized API client module that abstracts communication with the Django backend. This provides a single place to configure the API URL, handle errors, and add features like retry logic later.
+    priority: 1
+    complexity: S
+    status: ready
+    assignee: null
+    path: docs/active/tickets/T-024-02-api-client-module.md
+  - id: T-024-03
+    title: Migrate climate API calls to Django backend
+    story: S-024
+    description: Update the climate/frost date functionality to fetch data through the Django backend instead of hitting Open-Meteo directly. The backend caches responses for 30 days, reducing external API load.
+    priority: 1
+    complexity: M
+    status: pending
+    assignee: null
+    path: docs/active/tickets/T-024-03-migrate-climate-calls.md
+  - id: T-024-04
+    title: Migrate Overpass API calls to Django backend
+    story: S-024
+    description: Update building footprint queries to go through the Django backend instead of hitting the public Overpass API directly. The backend caches OSM responses for 7 days.
+    priority: 1
+    complexity: M
+    status: pending
+    assignee: null
+    path: docs/active/tickets/T-024-04-migrate-overpass-calls.md
+  - id: T-024-05
+    title: Migrate canopy tile fetches to Django backend
+    story: S-024
+    description: Update canopy height tile fetching to go through the Django backend instead of hitting AWS S3 directly. The backend caches tiles for 1 year (the data is static).
+    priority: 1
+    complexity: M
+    status: pending
+    assignee: null
+    path: docs/active/tickets/T-024-05-migrate-canopy-calls.md
+  - id: T-024-06
+    title: End-to-end integration testing
+    story: S-024
+    description: Verify the complete user flow works with the Django backend. All external API calls should now route through Django with Valkey caching.
+    priority: 2
+    complexity: S
+    status: pending
+    assignee: null
+    path: docs/active/tickets/T-024-06-integration-testing.md
 edges:
   - from: T-022-00
     to: T-022-01
@@ -204,15 +253,29 @@ edges:
     to: T-022-05
   - from: T-022-02
     to: T-022-06
+  - from: T-024-01
+    to: T-024-02
+  - from: T-024-02
+    to: T-024-03
+  - from: T-024-02
+    to: T-024-04
+  - from: T-024-02
+    to: T-024-05
+  - from: T-024-03
+    to: T-024-06
+  - from: T-024-04
+    to: T-024-06
+  - from: T-024-05
+    to: T-024-06
 meta:
   total_stories: 0
-  total_tasks: 14
+  total_tasks: 20
   total_milestones: 11
   by_status:
-    ready: 1
-    pending: 4
+    ready: 8
+    pending: 8
     in_progress: 0
-    complete: 9
+    complete: 4
     blocked: 0
   by_priority:
     "1": 3
