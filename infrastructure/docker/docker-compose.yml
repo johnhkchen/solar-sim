@@ -1,0 +1,172 @@
+# Docker Compose v2 - no version field needed (deprecated in v2)
+# https://docs.docker.com/compose/compose-file/04-version-and-name/
+
+services:
+  # =============================================================================
+  # Solar-Sim Application
+  # =============================================================================
+  solar-sim:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/Dockerfile
+    container_name: solar-sim-app
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://solar:${POSTGRES_PASSWORD}@postgres:5432/solar_sim
+      - CANOPY_DATA_PATH=/data/canopy
+      - CLIMATE_CACHE_PATH=/data/climate
+      - OVERPASS_URL=http://overpass:80/api/interpreter
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
+    volumes:
+      - ../data/canopy:/data/canopy:ro
+      - ../data/climate:/data/climate
+    depends_on:
+      postgres:
+        condition: service_healthy
+      overpass:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - solar-net
+
+  # =============================================================================
+  # PostgreSQL Database (v18 - latest stable as of 2026)
+  # =============================================================================
+  postgres:
+    image: postgres:18-alpine
+    container_name: solar-sim-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=solar
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=solar_sim
+    volumes:
+      # Note: PostgreSQL 18+ uses versioned PGDATA path
+      - ../data/postgres:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U solar -d solar_sim"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - solar-net
+
+  # =============================================================================
+  # Overpass API (OpenStreetMap Query Engine)
+  # =============================================================================
+  overpass:
+    image: wiktorn/overpass-api:latest
+    container_name: solar-sim-overpass
+    restart: unless-stopped
+    environment:
+      # Initialize with Northern California extract
+      - OVERPASS_MODE=${OVERPASS_MODE:-clone}
+      - OVERPASS_PLANET_URL=https://download.geofabrik.de/north-america/us/california/norcal-latest.osm.pbf
+      - OVERPASS_DIFF_URL=https://download.geofabrik.de/north-america/us/california/norcal-updates/
+      - OVERPASS_RULES_LOAD=10
+      - OVERPASS_SPACE=4294967296
+      - OVERPASS_META=no
+      - OVERPASS_COMPRESSION=gz
+      # Rate limiting (per IP)
+      - OVERPASS_RATE_LIMIT=0
+    volumes:
+      - ../data/overpass:/db
+    # Overpass needs time to initialize on first run (4-12 hours for NorCal)
+    # After initialization, subsequent starts are fast
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/api/status"]
+      interval: 60s
+      timeout: 30s
+      retries: 3
+      start_period: 300s
+    networks:
+      - solar-net
+
+  # =============================================================================
+  # Caddy Reverse Proxy (HTTPS) - v2.10+
+  # =============================================================================
+  caddy:
+    image: caddy:2.10-alpine
+    container_name: solar-sim-proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"  # HTTP/3
+    environment:
+      - DOMAIN=${DOMAIN:-localhost}
+      - ACME_EMAIL=${ACME_EMAIL:-admin@localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - solar-sim
+    networks:
+      - solar-net
+
+  # =============================================================================
+  # Django API Backend
+  # =============================================================================
+  api:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+      target: production
+    container_name: solar-sim-api
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql://solar:${POSTGRES_PASSWORD}@postgres:5432/solar_sim
+      - VALKEY_URL=redis://valkey:6379/0
+      - SECRET_KEY=${DJANGO_SECRET_KEY}
+      - ALLOWED_HOSTS=${DOMAIN:-localhost},api
+      - CORS_ORIGINS=https://${DOMAIN:-localhost},http://localhost:5173
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
+      - OVERPASS_URL=http://overpass:80/api/interpreter
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - solar-net
+
+  # =============================================================================
+  # Valkey (Redis-compatible cache)
+  # =============================================================================
+  valkey:
+    image: valkey/valkey:9.0-alpine
+    container_name: solar-sim-cache
+    restart: unless-stopped
+    volumes:
+      - ../data/valkey:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - solar-net
+
+networks:
+  solar-net:
+    driver: bridge
+
+volumes:
+  caddy-data:
+  caddy-config:

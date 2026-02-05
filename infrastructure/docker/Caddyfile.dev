@@ -1,0 +1,27 @@
+# =============================================================================
+# Caddy Configuration for Local Development
+# Uses localhost with self-signed certificate
+# =============================================================================
+
+{
+    # Skip ACME for local dev
+    auto_https off
+}
+
+:80 {
+    # Simple reverse proxy without TLS
+    encode gzip
+
+    handle /health {
+        reverse_proxy solar-sim:3000
+    }
+
+    handle {
+        reverse_proxy solar-sim:3000
+    }
+
+    log {
+        output stdout
+        format console
+    }
+}

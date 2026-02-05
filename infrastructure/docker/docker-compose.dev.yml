@@ -1,0 +1,87 @@
+# Development overrides - use with:
+# docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+services:
+  solar-sim:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/Dockerfile
+      target: development
+    environment:
+      - NODE_ENV=development
+      - PUBLIC_API_URL=http://localhost:8000/api/v1
+    volumes:
+      # Mount source for hot reload
+      - ../../src:/app/src
+      - ../../static:/app/static
+      # Exclude node_modules to use container's version
+      - /app/node_modules
+    ports:
+      # Expose directly for debugging
+      - "3000:3000"
+      - "5173:5173"  # Vite HMR
+    command: npm run dev -- --host 0.0.0.0
+    # Skip SvelteKit in basic backend validation - enable with --profile svelte
+    profiles:
+      - svelte
+
+  api:
+    build:
+      context: ../../backend
+      dockerfile: Dockerfile
+      target: development
+    environment:
+      - DEBUG=true
+      - SECRET_KEY=dev-insecure-key-for-local-only
+      - DATABASE_URL=postgresql://solar:solar@postgres:5432/solar_sim
+      - VALKEY_URL=redis://valkey:6379/0
+      - ALLOWED_HOSTS=localhost,127.0.0.1,api
+      - CORS_ORIGINS=http://localhost:5173,http://localhost:3000
+      # In dev, hit public APIs (cached via Valkey) instead of self-hosted Overpass
+      - OVERPASS_URL=https://overpass-api.de/api/interpreter
+    volumes:
+      # Mount source for hot reload
+      - ../../backend:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+      - valkey
+
+  postgres:
+    image: postgres:16-alpine  # Use postgres 16 in dev to avoid PG18 mount issues
+    environment:
+      - POSTGRES_USER=solar
+      - POSTGRES_PASSWORD=solar
+      - POSTGRES_DB=solar_sim
+    ports:
+      # Expose for local DB tools
+      - "5432:5432"
+    volumes:
+      # Override: Don't mount init.sql - let Django migrations handle schema
+      - ../data/postgres:/var/lib/postgresql/data
+
+  valkey:
+    ports:
+      # Expose for debugging cache
+      - "6379:6379"
+
+  overpass:
+    # Skip Overpass in dev by default - use public API with caching instead
+    # Uncomment to run local Overpass (slow init on Apple Silicon)
+    profiles:
+      - overpass
+    # Force amd64 for Apple Silicon (M1/M2/M3/M4/M5) - runs via Rosetta
+    platform: linux/amd64
+    ports:
+      - "12345:80"
+
+  caddy:
+    # In dev, use HTTP only with self-signed certs
+    environment:
+      - DOMAIN=localhost
+    volumes:
+      - ./Caddyfile.dev:/etc/caddy/Caddyfile:ro
+    # Skip Caddy in basic backend validation
+    profiles:
+      - svelte
