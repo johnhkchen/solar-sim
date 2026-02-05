@@ -323,3 +323,112 @@ stories:
 # List all tickets
 tickets:
     @ls -la docs/active/tickets/*.md 2>/dev/null || echo "No tickets yet."
+
+# ============================================================================
+# INFRASTRUCTURE COMMANDS (Self-Hosted Deployment)
+# ============================================================================
+
+# Full infrastructure setup: download data, initialize services
+infra-setup:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "☀️  Solar-Sim Infrastructure Setup"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+
+    # Create .env from example if not exists
+    if [ ! -f infrastructure/.env ]; then
+        echo "Creating .env from example..."
+        cp infrastructure/.env.example infrastructure/.env
+        echo "⚠️  Edit infrastructure/.env before starting services!"
+        echo ""
+    fi
+
+    # Download canopy tiles
+    echo "📥 Downloading Bay Area canopy tiles..."
+    ./infrastructure/scripts/download-canopy.sh
+    echo ""
+
+    # Note about Overpass initialization
+    echo "ℹ️  Overpass API will initialize on first 'infra-up' (takes 4-12 hours)"
+    echo "   Set OVERPASS_MODE=clone in .env after first successful run"
+    echo ""
+    echo "✅ Setup complete! Run 'just infra-up' to start services."
+
+# Download Bay Area canopy tiles only
+infra-download-canopy:
+    ./infrastructure/scripts/download-canopy.sh
+
+# Pre-cache climate data for Bay Area grid
+infra-seed-climate:
+    node infrastructure/scripts/seed-climate.js
+
+# Start all infrastructure services
+infra-up *args:
+    docker compose -f infrastructure/docker/docker-compose.yml up -d {{args}}
+
+# Start in development mode (with hot reload, exposed ports)
+infra-up-dev *args:
+    docker compose -f infrastructure/docker/docker-compose.yml -f infrastructure/docker/docker-compose.dev.yml up {{args}}
+
+# Stop all services
+infra-down:
+    docker compose -f infrastructure/docker/docker-compose.yml down
+
+# View logs (all services or specific service)
+infra-logs *service:
+    docker compose -f infrastructure/docker/docker-compose.yml logs -f {{service}}
+
+# Show service status
+infra-status:
+    #!/usr/bin/env bash
+    echo "☀️  Solar-Sim Infrastructure Status"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    docker compose -f infrastructure/docker/docker-compose.yml ps
+    echo ""
+    echo "Data volumes:"
+    du -sh infrastructure/data/* 2>/dev/null || echo "  (no data yet)"
+
+# Restart a specific service
+infra-restart service:
+    docker compose -f infrastructure/docker/docker-compose.yml restart {{service}}
+
+# Build/rebuild images
+infra-build *args:
+    docker compose -f infrastructure/docker/docker-compose.yml build {{args}}
+
+# Run database migrations (if needed)
+infra-db-migrate:
+    docker compose -f infrastructure/docker/docker-compose.yml exec postgres psql -U solar -d solar_sim -f /docker-entrypoint-initdb.d/init.sql
+
+# Open psql shell
+infra-db-shell:
+    docker compose -f infrastructure/docker/docker-compose.yml exec postgres psql -U solar -d solar_sim
+
+# Run backup
+infra-backup:
+    ./infrastructure/scripts/backup.sh
+
+# Pull latest images and restart
+infra-upgrade:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "Pulling latest images..."
+    docker compose -f infrastructure/docker/docker-compose.yml pull
+    echo "Rebuilding application..."
+    docker compose -f infrastructure/docker/docker-compose.yml build solar-sim
+    echo "Restarting services..."
+    docker compose -f infrastructure/docker/docker-compose.yml up -d
+    echo "✅ Upgrade complete!"
+
+# Clean up Docker resources (images, volumes, networks)
+infra-clean:
+    #!/usr/bin/env bash
+    echo "⚠️  This will remove all Solar-Sim Docker resources."
+    echo "   Data in infrastructure/data/ will NOT be deleted."
+    read -p "Continue? [y/N] " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        docker compose -f infrastructure/docker/docker-compose.yml down -v --rmi local
+        echo "✅ Cleanup complete."
+    fi
