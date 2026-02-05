@@ -28,3 +28,15 @@ vite.config.ts.timestamp-*
 # Runtime
 logs/
 .ralph/
+
+# Infrastructure data (downloaded/generated)
+infrastructure/data/
+infrastructure/.env
+!infrastructure/.env.example
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
