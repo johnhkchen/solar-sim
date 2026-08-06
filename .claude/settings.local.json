@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nfeat\\(ui\\): major UI integration and planning updates\n\n- Integrate new UI components \\(heatmaps, plan canvas, zone editor\\)\n- Add plant query and horticultural integration\n- Add exposure grid and combined sun hours calculations\n- Update specification and roadmap with S-022 and S-023 stories\n- Archive completed phase documentation\n- Add playwright config and E2E test infrastructure\n- Add PDF export, storage, and worker infrastructure\n- Add .env.example for ShadeMap API configuration\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git push:*)",
+      "Bash(ls:*)",
+      "Bash(git commit:*)",
+      "Bash(tailscale ip:*)"
+    ]
+  }
+}
